@@ -17,6 +17,10 @@ fn ensure_window(
     height: f64,
     title: &str,
 ) -> AppResult<WindowInfo> {
+    // 打开任何子窗口时先隐藏抽屉，避免它（floating level）盖住子窗口。
+    if let Some(drawer) = app.get_webview_window("drawer") {
+        let _ = drawer.hide();
+    }
     if let Some(existing) = app.get_webview_window(label) {
         let _ = existing.show();
         let _ = existing.set_focus();
@@ -31,6 +35,7 @@ fn ensure_window(
         .center()
         .build()
         .map_err(|e| AppError::Internal(format!("create window {label}: {e}")))?;
+    tracing::info!(label, "sub-window created");
     Ok(WindowInfo {
         label: label.to_string(),
     })

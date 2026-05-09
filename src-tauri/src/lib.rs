@@ -98,6 +98,7 @@ pub fn run() {
             commands::inject::inject_paste,
             commands::inject::inject_copy_only,
             commands::inject::permissions_check_accessibility,
+            commands::inject::permissions_request_accessibility,
             commands::window::window_show_drawer,
             commands::window::window_hide_drawer,
             commands::window::window_set_pin,

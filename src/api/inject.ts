@@ -15,3 +15,6 @@ export const injectCopyOnly = (content: string) =>
 
 export const permissionsCheckAccessibility = () =>
   invoke<boolean>("permissions_check_accessibility");
+
+export const permissionsRequestAccessibility = () =>
+  invoke<boolean>("permissions_request_accessibility");

@@ -6,6 +6,8 @@
 // 来规避焦点冲突；NSPanel/EX_NOACTIVATE 留给后续打磨。
 use tauri::WebviewWindow;
 
+pub mod permissions;
+
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]

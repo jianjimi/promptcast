@@ -21,7 +21,10 @@ import {
   registerHotkey,
   unregisterHotkey,
 } from "../api/window";
-import { permissionsCheckAccessibility } from "../api/inject";
+import {
+  permissionsCheckAccessibility,
+  permissionsRequestAccessibility,
+} from "../api/inject";
 import { logDir } from "../api";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { setThemeMode, applyPersistedTheme } from "../composables/useTheme";
@@ -126,6 +129,12 @@ export default defineComponent({
     async clearHotkey() {
       this.hotkeyDraft = "";
       await this.saveHotkey();
+    },
+    async recheckAccess() {
+      this.accessibilityOk = await permissionsCheckAccessibility();
+    },
+    async requestAccess() {
+      this.accessibilityOk = await permissionsRequestAccessibility();
     },
     async openLogsDir() {
       if (!this.logsPath) return;
@@ -268,7 +277,10 @@ export default defineComponent({
             <div class="row">
               <div>
                 <div class="title">{{ isMacOS ? "macOS 辅助功能" : "键盘模拟权限" }}</div>
-                <div class="sub">注入功能需要此权限。未授权时按 Enter 会回退仅复制。</div>
+                <div class="sub">
+                  注入功能需要此权限（AXIsProcessTrusted）。
+                  未授权时按 Enter 会回退仅复制。
+                </div>
               </div>
               <span class="spacer" />
               <span :class="['status', accessibilityOk ? 'ok' : 'bad']">
@@ -276,7 +288,15 @@ export default defineComponent({
               </span>
             </div>
             <div v-if="!accessibilityOk && isMacOS" class="hint">
-              打开 系统设置 → 隐私与安全 → 辅助功能，把 Prompt Hub 加入并勾选。
+              点下面按钮 → 系统会弹出引导窗 → 在「辅助功能」里把
+              <b>prompt-manager</b> 加入并勾选 → 重启应用使其生效。
+            </div>
+            <div class="row">
+              <span class="spacer" />
+              <button class="ghost" @click="recheckAccess">重新检测</button>
+              <button v-if="!accessibilityOk && isMacOS" class="primary" @click="requestAccess">
+                请求授权
+              </button>
             </div>
           </div>
           <div class="card">
