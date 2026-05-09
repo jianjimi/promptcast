@@ -26,6 +26,8 @@ export default defineComponent({
   line-height: 1.7;
   color: var(--text-primary);
   word-break: break-word;
+  user-select: text;
+  cursor: text;
 }
 .md :deep(h1), .md :deep(h2), .md :deep(h3) {
   margin: 16px 0 6px;

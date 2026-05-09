@@ -6,7 +6,7 @@ use tauri::State;
 
 use crate::db::{self, DbState};
 use crate::error::{AppError, AppResult};
-use crate::models::{folder::Folder, prompt::Prompt, tag::Tag};
+use crate::models::{folder::Folder, prompt::Prompt, site::Site, tag::Tag};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -15,6 +15,8 @@ pub struct Snapshot {
     pub folders: Vec<Folder>,
     pub tags: Vec<Tag>,
     pub prompts: Vec<Prompt>,
+    #[serde(default)]
+    pub sites: Vec<Site>,
     pub settings: serde_json::Map<String, Value>,
 }
 
@@ -27,6 +29,7 @@ pub fn data_export_json(db: State<'_, DbState>) -> AppResult<String> {
         &conn,
         crate::models::prompt::SortMode::Created,
     )?;
+    let sites = db::sites::list(&conn)?;
     let settings_obj = db::settings::get_all(&conn)?;
     let settings_value = serde_json::to_value(&settings_obj)?;
     let settings = match settings_value {
@@ -39,6 +42,7 @@ pub fn data_export_json(db: State<'_, DbState>) -> AppResult<String> {
         folders,
         tags,
         prompts,
+        sites,
         settings,
     };
     Ok(serde_json::to_string_pretty(&snap)?)
@@ -72,7 +76,8 @@ pub fn data_import_json(
     let tx = conn.transaction().map_err(|e| AppError::Db(e.to_string()))?;
 
     if args.mode == "replace" {
-        for t in ["prompt_tags", "prompts", "tags", "folders"] {
+        // 顺序：依赖项先删；sites 与 prompts 无外键关系但也应清。
+        for t in ["prompt_tags", "prompts", "tags", "folders", "sites"] {
             tx.execute(&format!("DELETE FROM {t}"), [])
                 .map_err(|e| AppError::Db(e.to_string()))?;
         }
@@ -116,6 +121,17 @@ pub fn data_import_json(
             )
             .map_err(|e| AppError::Db(e.to_string()))?;
         }
+        inserted += 1;
+    }
+    for s in &snap.sites {
+        // 注意：favicon_data_uri 需还原为 blob+mime 才能写库；MVP 先不导入二进制，
+        // 用户在导入后可在设置里点 ↻ 重新抓取。
+        tx.execute(
+            "INSERT OR IGNORE INTO sites (id, name, url, sort_order, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![s.id, s.name, s.url, s.sort_order, s.created_at],
+        )
+        .map_err(|e| AppError::Db(e.to_string()))?;
         inserted += 1;
     }
 

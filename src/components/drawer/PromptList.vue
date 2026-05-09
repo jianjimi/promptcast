@@ -14,6 +14,7 @@ export default defineComponent({
   emits: {
     select: (_id: number) => true,
     "toggle-fav": (_id: number) => true,
+    "new-prompt": () => true,
   },
   computed: {
     pinned(): Prompt[] {
@@ -59,7 +60,8 @@ export default defineComponent({
     </div>
     <div v-if="!prompts.length" class="empty">
       <p>没有匹配的提示词</p>
-      <p class="hint">⌘N 新建一条</p>
+      <button class="empty-cta" @click="$emit('new-prompt')">+ 新建提示词</button>
+      <p class="hint">或按 ⌘N</p>
     </div>
   </div>
 </template>
@@ -82,10 +84,24 @@ export default defineComponent({
   padding: 60px 16px;
   text-align: center;
   color: var(--text-tertiary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
 .empty .hint {
-  margin-top: 6px;
   font-family: var(--font-mono);
   font-size: 10px;
 }
+.empty-cta {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.empty-cta:hover { opacity: 0.92; }
 </style>

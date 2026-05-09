@@ -21,6 +21,7 @@ import { useSettingsStore } from "../stores/settings";
 import { useUIStore } from "../stores/ui";
 
 import { buildSearchable, searchPrompts } from "../composables/useFuzzySearch";
+import { applyPersistedTheme } from "../composables/useTheme";
 import {
   injectPaste,
   injectCopyOnly,
@@ -30,6 +31,7 @@ import {
   windowOpenPreview,
   windowHideDrawer,
 } from "../api/window";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import type { Prompt } from "../types/prompt";
 
@@ -104,13 +106,22 @@ export default defineComponent({
       this.sites().loadAll(),
       this.prompts.loadAll(),
     ]);
+    applyPersistedTheme(this.settings.data.theme);
     document.addEventListener("keydown", this.onKey);
+    // 抽屉每次重新可见时聚焦搜索框（Spotlight 风）。
+    getCurrentWebviewWindow().onFocusChanged((ev) => {
+      if (ev.payload) this.focusSearch();
+    });
   },
   beforeUnmount() {
     document.removeEventListener("keydown", this.onKey);
   },
   methods: {
     sites() { return useSitesStore(); },
+    focusSearch() {
+      const inp = document.querySelector<HTMLInputElement>(".search-row input");
+      inp?.focus(); inp?.select();
+    },
     moveSel(dir: 1 | -1) {
       const list = this.searched;
       if (!list.length) return;
@@ -128,7 +139,7 @@ export default defineComponent({
       const r = await injectPaste(p.content);
       await this.prompts.recordUse(p.id);
       if (!r.ok) {
-        this.ui.pushToast("已复制到剪贴板", "info");
+        this.ui.pushToast("注入失败 · 已复制到剪贴板", "warning");
       } else if (!this.ui.drawerPinned) {
         await windowHideDrawer();
       }
@@ -178,8 +189,8 @@ export default defineComponent({
       }
       if (cmd && (e.key === "f" || e.key === "F")) {
         e.preventDefault();
-        const inp = document.querySelector<HTMLInputElement>(".search-row input");
-        inp?.focus(); inp?.select(); return;
+        this.focusSearch();
+        return;
       }
       if (e.key === " " && !inEditable) {
         e.preventDefault(); this.previewSelected(); return;
@@ -202,6 +213,7 @@ export default defineComponent({
       :selected-id="prompts.selectedId"
       @select="(id: number) => prompts.select(id)"
       @toggle-fav="toggleFav"
+      @new-prompt="newPrompt"
     />
     <SiteLauncher />
     <HintBar :count="searched.length" />

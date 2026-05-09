@@ -51,7 +51,9 @@ export default defineComponent({
     await Promise.all([this.loadMeta(), this.loadPrompt()]);
     this.loaded = true;
     this.$nextTick(() => {
-      (this.$refs.titleInput as HTMLInputElement | undefined)?.focus();
+      // 新建：聚焦标题；编辑：聚焦内容（更常见的需求）
+      const ref = this.isNew ? "titleInput" : "contentInput";
+      (this.$refs[ref] as HTMLInputElement | HTMLTextAreaElement | undefined)?.focus();
     });
     document.addEventListener("keydown", this.onKey);
   },
@@ -92,7 +94,11 @@ export default defineComponent({
       this.newTagInput = "";
     },
     async save() {
-      if (!this.canSave) return;
+      if (!this.canSave) {
+        useUIStore().pushToast("标题不能为空", "warning");
+        (this.$refs.titleInput as HTMLInputElement | undefined)?.focus();
+        return;
+      }
       const draft = {
         title: this.title.trim(),
         content: this.content,
@@ -126,7 +132,25 @@ export default defineComponent({
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         this.save();
+        return;
       }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this.cancel();
+      }
+    },
+    onContentTab(e: KeyboardEvent) {
+      // 在光标位置插入两个空格而非把焦点跳走 / 追加到末尾。
+      e.preventDefault();
+      const ta = e.target as HTMLTextAreaElement;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const insert = "  ";
+      this.content =
+        this.content.slice(0, start) + insert + this.content.slice(end);
+      this.$nextTick(() => {
+        ta.selectionStart = ta.selectionEnd = start + insert.length;
+      });
     },
   },
 });
@@ -199,8 +223,9 @@ export default defineComponent({
           <span class="word">{{ wordCount }} 字 · Tab 插入两空格</span>
         </div>
         <textarea
+          ref="contentInput"
           v-model="content"
-          @keydown.tab.prevent="content = content + '  '"
+          @keydown.tab="onContentTab"
           class="content-input"
           spellcheck="false"
         />

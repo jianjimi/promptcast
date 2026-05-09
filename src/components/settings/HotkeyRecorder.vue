@@ -37,11 +37,14 @@ export default defineComponent({
     onKey(e: KeyboardEvent) {
       e.preventDefault();
       e.stopPropagation();
+      if (e.key === "Escape") { this.cancel(); return; }
       const mods: string[] = [];
       if (e.metaKey || e.ctrlKey) mods.push("CmdOrCtrl");
       if (e.shiftKey) mods.push("Shift");
       if (e.altKey) mods.push("Alt");
       if (["Control", "Meta", "Shift", "Alt"].includes(e.key)) return;
+      // 必须至少一个 modifier，否则单键当快捷键太容易冲突。
+      if (mods.length === 0) return;
       const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       const combo = [...mods, key].join("+");
       this.$emit("update:modelValue", combo);

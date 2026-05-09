@@ -18,7 +18,7 @@ import {
   unregisterHotkey,
 } from "../api/window";
 import { permissionsCheckAccessibility } from "../api/inject";
-import { setThemeMode } from "../composables/useTheme";
+import { setThemeMode, applyPersistedTheme } from "../composables/useTheme";
 import { isMac } from "../utils/format";
 
 type TabKey =
@@ -42,6 +42,7 @@ export default defineComponent({
   },
   async mounted() {
     if (!this.settings.loaded) await this.settings.loadAll();
+    applyPersistedTheme(this.settings.data.theme);
     this.hotkeyDraft = this.settings.data.hotkey ?? "";
     this.accessibilityOk = await permissionsCheckAccessibility();
   },

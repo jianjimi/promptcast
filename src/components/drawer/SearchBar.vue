@@ -26,6 +26,12 @@ export default defineComponent({
       modSymbol: modKey(),
     };
   },
+  mounted() {
+    document.addEventListener("click", this.onDocClick);
+  },
+  beforeUnmount() {
+    document.removeEventListener("click", this.onDocClick);
+  },
   computed: {
     ui() { return useUIStore(); },
     prompts() { return usePromptsStore(); },
@@ -52,6 +58,11 @@ export default defineComponent({
     async setSort(mode: SortMode) {
       this.sortMenuOpen = false;
       await this.prompts.setSort(mode);
+    },
+    onDocClick(e: MouseEvent) {
+      if (!this.sortMenuOpen) return;
+      const wrap = (this.$el as HTMLElement)?.querySelector(".sort-wrap");
+      if (wrap && !wrap.contains(e.target as Node)) this.sortMenuOpen = false;
     },
   },
 });
