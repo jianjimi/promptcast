@@ -1,10 +1,12 @@
-<!-- HintBar.vue — 底部快捷键提示条。 -->
+<!-- HintBar.vue — 底部快捷键提示。 -->
 <script lang="ts">
 import { defineComponent } from "vue";
+import { CornerDownLeft } from "lucide-vue-next";
 import { modKey } from "../../utils/format";
 
 export default defineComponent({
   name: "HintBar",
+  components: { CornerDownLeft },
   props: {
     count: { type: Number, default: 0 },
   },
@@ -16,13 +18,16 @@ export default defineComponent({
 
 <template>
   <div class="hint-bar">
-    <span><b>↵</b> 注入</span>
+    <span class="kbd">
+      <CornerDownLeft :size="11" />
+      注入
+    </span>
     <span class="dot">·</span>
-    <span>{{ mod }}C 复制</span>
+    <span class="kbd">{{ mod }}C 复制</span>
     <span class="dot">·</span>
-    <span>{{ mod }}E 编辑</span>
+    <span class="kbd">{{ mod }}E 编辑</span>
     <span class="dot">·</span>
-    <span>Space 预览</span>
+    <span class="kbd">Space 预览</span>
     <span class="spacer" />
     <span class="count">{{ count }} 条</span>
   </div>
@@ -40,7 +45,7 @@ export default defineComponent({
   font-size: 10px;
   color: var(--text-secondary);
 }
-.hint-bar b { font-weight: 700; }
+.kbd { display: inline-flex; align-items: center; gap: 3px; }
 .dot { color: var(--border-strong); }
 .spacer { flex: 1; }
 .count { color: var(--text-tertiary); }

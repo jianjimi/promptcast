@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 export const ping = () => invoke<string>("ping");
 
+export const logDir = () => invoke<string>("log_dir");
+
 export * from "./prompts";
 export * from "./folders";
 export * from "./tags";

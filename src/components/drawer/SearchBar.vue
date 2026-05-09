@@ -1,6 +1,9 @@
-<!-- SearchBar.vue — 顶栏：品牌、搜索框、pin / 排序 / 设置 / 新建。 -->
+<!-- SearchBar.vue — 顶栏。整体可拖拽（除按钮 / 搜索框）。 -->
 <script lang="ts">
 import { defineComponent } from "vue";
+import {
+  Sparkle, Pin, ArrowUpDown, Settings, Plus, Search,
+} from "lucide-vue-next";
 import { useUIStore } from "../../stores/ui";
 import { usePromptsStore } from "../../stores/prompts";
 import {
@@ -13,12 +16,12 @@ import { modKey } from "../../utils/format";
 
 export default defineComponent({
   name: "SearchBar",
+  components: { Sparkle, Pin, ArrowUpDown, Settings, Plus, Search },
   props: {
     modelValue: { type: String, required: true },
   },
   emits: {
     "update:modelValue": (_v: string) => true,
-    focusInput: () => true,
   },
   data() {
     return {
@@ -26,24 +29,15 @@ export default defineComponent({
       modSymbol: modKey(),
     };
   },
+  computed: {
+    ui() { return useUIStore(); },
+    prompts() { return usePromptsStore(); },
+  },
   mounted() {
     document.addEventListener("click", this.onDocClick);
   },
   beforeUnmount() {
     document.removeEventListener("click", this.onDocClick);
-  },
-  computed: {
-    ui() { return useUIStore(); },
-    prompts() { return usePromptsStore(); },
-    sortLabel(): string {
-      const map: Record<SortMode, string> = {
-        recent_used: "最近使用",
-        created: "创建时间",
-        updated: "更新时间",
-        title: "标题 A-Z",
-      };
-      return map[this.prompts.sortMode];
-    },
   },
   methods: {
     onInput(e: Event) {
@@ -72,7 +66,7 @@ export default defineComponent({
   <header class="search-bar">
     <div class="title-row">
       <div class="brand">
-        <span class="dot" />
+        <Sparkle :size="14" class="brand-ico" />
         <span class="name">Prompt Hub</span>
       </div>
       <div class="actions">
@@ -82,11 +76,11 @@ export default defineComponent({
           @click="togglePin"
           title="钉住（不自动隐藏）"
         >
-          📌
+          <Pin :size="14" />
         </button>
         <div class="sort-wrap">
           <button class="icon-btn" @click="sortMenuOpen = !sortMenuOpen" title="排序">
-            ⇅
+            <ArrowUpDown :size="14" />
           </button>
           <div v-if="sortMenuOpen" class="sort-menu">
             <button @click="setSort('recent_used')">最近使用</button>
@@ -95,20 +89,22 @@ export default defineComponent({
             <button @click="setSort('title')">标题 A-Z</button>
           </div>
         </div>
-        <button class="icon-btn" @click="openSettings" title="设置">⚙</button>
+        <button class="icon-btn" @click="openSettings" title="设置">
+          <Settings :size="14" />
+        </button>
         <span class="divider" />
         <button class="primary-btn" @click="openNew" title="新建">
-          <span class="plus">+</span><span>新建</span>
+          <Plus :size="13" />
+          <span>新建</span>
         </button>
       </div>
     </div>
     <div class="search-row">
-      <span class="search-icon">⌕</span>
+      <Search :size="14" class="search-icon" />
       <input
         :value="modelValue"
         @input="onInput"
         placeholder="搜索提示词…"
-        autofocus
       />
       <span class="hint">{{ modSymbol }}F</span>
     </div>
@@ -124,7 +120,7 @@ export default defineComponent({
 }
 .title-row {
   height: 44px;
-  padding: 0 12px;
+  padding: 0 8px 0 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -132,25 +128,21 @@ export default defineComponent({
   -webkit-app-region: drag;
 }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand .dot {
-  width: 14px; height: 14px; border-radius: 4px;
-  background: var(--accent);
-}
+.brand-ico { color: var(--accent); }
 .brand .name { font-weight: 700; font-size: 13px; letter-spacing: 0.2px; }
 
 .actions {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 2px;
   -webkit-app-region: no-drag;
 }
 .icon-btn {
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 6px;
-  font-size: 13px;
   color: var(--text-secondary);
   transition: background var(--dur-fast) var(--ease-out);
 }
-.icon-btn:hover { background: var(--bg-hover); }
+.icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .icon-btn.active { background: var(--accent-soft); color: var(--accent); }
 .divider { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
 
@@ -166,18 +158,18 @@ export default defineComponent({
   box-shadow: var(--shadow-sm);
 }
 .primary-btn:hover { opacity: 0.92; }
-.primary-btn .plus { font-size: 14px; line-height: 1; }
 
 .search-row {
   height: 50px;
   padding: 0 12px;
   display: flex;
   align-items: center;
+  gap: 8px;
+  -webkit-app-region: no-drag;
 }
 .search-row input {
   flex: 1;
   height: 32px;
-  margin: 0 8px;
   padding: 0 8px;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -188,12 +180,12 @@ export default defineComponent({
   font-size: 13px;
 }
 .search-row input:focus { border-color: var(--text-secondary); }
-.search-icon { font-size: 14px; color: var(--text-tertiary); }
+.search-icon { color: var(--text-tertiary); flex-shrink: 0; }
 .hint {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-tertiary);
-  padding: 0 4px;
+  flex-shrink: 0;
 }
 
 .sort-wrap { position: relative; }

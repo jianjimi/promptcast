@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use scraper::{Html, Selector};
 use tauri::{AppHandle, State};
+use crate::events;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
@@ -23,6 +24,7 @@ pub fn sites_list(db: State<'_, DbState>) -> AppResult<Vec<Site>> {
 
 #[tauri::command]
 pub fn sites_create(
+    app: AppHandle,
     db: State<'_, DbState>,
     name: String,
     url: String,
@@ -31,40 +33,67 @@ pub fn sites_create(
         let conn = db.0.lock();
         db::sites::create(&conn, &name, &url)?
     };
+    tracing::info!(id = site.id, url = %site.url, "site created");
     // 同步抓一次 favicon。失败不影响 site 已创建。
-    if let Some((bytes, mime)) = fetch_favicon(&site.url) {
+    let final_site = if let Some((bytes, mime)) = fetch_favicon(&site.url) {
         let conn = db.0.lock();
         let _ = db::sites::set_favicon(&conn, site.id, Some(&bytes), Some(&mime));
-        return db::sites::get(&conn, site.id);
-    }
-    Ok(site)
+        db::sites::get(&conn, site.id)?
+    } else {
+        tracing::warn!(url = %site.url, "favicon fetch failed");
+        site
+    };
+    events::emit_sites_changed(&app);
+    Ok(final_site)
 }
 
 #[tauri::command]
 pub fn sites_update(
+    app: AppHandle,
     db: State<'_, DbState>,
     id: i64,
     name: String,
     url: String,
 ) -> AppResult<Site> {
-    let conn = db.0.lock();
-    db::sites::update(&conn, id, &name, &url)
+    let s = {
+        let conn = db.0.lock();
+        db::sites::update(&conn, id, &name, &url)?
+    };
+    events::emit_sites_changed(&app);
+    Ok(s)
 }
 
 #[tauri::command]
-pub fn sites_delete(db: State<'_, DbState>, id: i64) -> AppResult<()> {
-    let conn = db.0.lock();
-    db::sites::delete(&conn, id)
+pub fn sites_delete(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    id: i64,
+) -> AppResult<()> {
+    {
+        let conn = db.0.lock();
+        db::sites::delete(&conn, id)?;
+    }
+    events::emit_sites_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn sites_reorder(db: State<'_, DbState>, ordered_ids: Vec<i64>) -> AppResult<()> {
-    let mut conn = db.0.lock();
-    db::sites::reorder(&mut conn, &ordered_ids)
+pub fn sites_reorder(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    ordered_ids: Vec<i64>,
+) -> AppResult<()> {
+    {
+        let mut conn = db.0.lock();
+        db::sites::reorder(&mut conn, &ordered_ids)?;
+    }
+    events::emit_sites_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn sites_refresh_favicon(
+    app: AppHandle,
     db: State<'_, DbState>,
     id: i64,
 ) -> AppResult<Site> {
@@ -73,13 +102,17 @@ pub fn sites_refresh_favicon(
         db::sites::get(&conn, id)?.url
     };
     let res = fetch_favicon(&url);
-    let conn = db.0.lock();
-    if let Some((bytes, mime)) = res {
-        db::sites::set_favicon(&conn, id, Some(&bytes), Some(&mime))?;
-    } else {
-        db::sites::set_favicon(&conn, id, None, None)?;
-    }
-    db::sites::get(&conn, id)
+    let s = {
+        let conn = db.0.lock();
+        if let Some((bytes, mime)) = res {
+            db::sites::set_favicon(&conn, id, Some(&bytes), Some(&mime))?;
+        } else {
+            db::sites::set_favicon(&conn, id, None, None)?;
+        }
+        db::sites::get(&conn, id)?
+    };
+    events::emit_sites_changed(&app);
+    Ok(s)
 }
 
 #[tauri::command]

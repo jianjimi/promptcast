@@ -1,10 +1,10 @@
 <!--
   DrawerView.vue — 主抽屉窗口（400×720）。
-  组合 SearchBar / FilterChips / PromptList / SiteLauncher / HintBar；
-  键盘：↑↓ 选择、Enter 注入、⌘C 复制、⌘E 编辑、⌘N 新建、Space 预览、Esc 隐藏。
+  组合 SearchBar / FilterChips / PromptList / SiteLauncher / HintBar。
 -->
 <script lang="ts">
 import { defineComponent } from "vue";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import SearchBar from "../components/drawer/SearchBar.vue";
 import FilterChips from "../components/drawer/FilterChips.vue";
@@ -23,6 +23,15 @@ import { useUIStore } from "../stores/ui";
 import { buildSearchable, searchPrompts } from "../composables/useFuzzySearch";
 import { applyPersistedTheme } from "../composables/useTheme";
 import {
+  listenAppEvent,
+  EVT_PROMPTS_CHANGED,
+  EVT_FOLDERS_CHANGED,
+  EVT_TAGS_CHANGED,
+  EVT_SITES_CHANGED,
+  EVT_SETTINGS_CHANGED,
+  EVT_THEME_CHANGED,
+} from "../composables/useAppEvents";
+import {
   injectPaste,
   injectCopyOnly,
 } from "../api/inject";
@@ -31,9 +40,10 @@ import {
   windowOpenPreview,
   windowHideDrawer,
 } from "../api/window";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { log } from "../utils/logger";
 
 import type { Prompt } from "../types/prompt";
+import type { ThemeMode } from "../types/settings";
 
 export default defineComponent({
   name: "DrawerView",
@@ -43,6 +53,7 @@ export default defineComponent({
   data() {
     return {
       query: "",
+      unlisteners: [] as UnlistenFn[],
     };
   },
   computed: {
@@ -92,13 +103,13 @@ export default defineComponent({
   },
   watch: {
     searched(list: Prompt[]) {
-      // 搜索/筛选变化后保持 selected 在可见列表里
       if (!list.find((p) => p.id === this.prompts.selectedId)) {
         this.prompts.select(list[0]?.id ?? null);
       }
     },
   },
   async mounted() {
+    log.info("DrawerView mounted");
     await Promise.all([
       this.settings.loadAll(),
       this.folders.loadAll(),
@@ -108,16 +119,24 @@ export default defineComponent({
     ]);
     applyPersistedTheme(this.settings.data.theme);
     document.addEventListener("keydown", this.onKey);
-    // 抽屉每次重新可见时聚焦搜索框（Spotlight 风）。
-    getCurrentWebviewWindow().onFocusChanged((ev) => {
-      if (ev.payload) this.focusSearch();
-    });
+    await this.subscribeEvents();
   },
   beforeUnmount() {
     document.removeEventListener("keydown", this.onKey);
+    for (const u of this.unlisteners) u();
   },
   methods: {
     sites() { return useSitesStore(); },
+    async subscribeEvents() {
+      this.unlisteners.push(
+        await listenAppEvent(EVT_PROMPTS_CHANGED, () => this.prompts.loadAll()),
+        await listenAppEvent(EVT_FOLDERS_CHANGED, () => this.folders.loadAll()),
+        await listenAppEvent(EVT_TAGS_CHANGED, () => this.tags.loadAll()),
+        await listenAppEvent(EVT_SITES_CHANGED, () => this.sites().loadAll()),
+        await listenAppEvent(EVT_SETTINGS_CHANGED, () => this.settings.loadAll()),
+        await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
+      );
+    },
     focusSearch() {
       const inp = document.querySelector<HTMLInputElement>(".search-row input");
       inp?.focus(); inp?.select();
@@ -132,21 +151,24 @@ export default defineComponent({
     async injectSelected() {
       const p = this.selectedPrompt;
       if (!p) return;
+      log.info(`inject prompt id=${p.id}`);
       if (this.settings.data.default_action === "copy_only") {
         await this.copySelected();
         return;
       }
-      const r = await injectPaste(p.content);
-      await this.prompts.recordUse(p.id);
-      if (!r.ok) {
-        this.ui.pushToast("注入失败 · 已复制到剪贴板", "warning");
-      } else if (!this.ui.drawerPinned) {
-        await windowHideDrawer();
+      try {
+        const r = await injectPaste(p.content);
+        await this.prompts.recordUse(p.id);
+        if (!r.ok) this.ui.pushToast("注入失败 · 已复制到剪贴板", "warning");
+      } catch (e) {
+        log.error(`inject failed: ${e}`);
+        this.ui.pushToast(`注入失败: ${e}`, "danger");
       }
     },
     async copySelected() {
       const p = this.selectedPrompt;
       if (!p) return;
+      log.info(`copy prompt id=${p.id}`);
       await injectCopyOnly(p.content);
       await this.prompts.recordUse(p.id);
       this.ui.pushToast("已复制到剪贴板", "success");
@@ -160,10 +182,16 @@ export default defineComponent({
       if (p) await windowOpenPreview(p.id);
     },
     async newPrompt() {
+      log.info("new prompt window opening");
       await windowOpenEditor(null);
     },
-    async toggleFav(id: number) {
-      await this.prompts.toggleFavorite(id);
+    async toggleFav(id: number) { await this.prompts.toggleFavorite(id); },
+    async copyById(id: number) {
+      this.prompts.select(id);
+      await this.copySelected();
+    },
+    async editById(id: number) {
+      await windowOpenEditor(id);
     },
     onKey(e: KeyboardEvent) {
       const cmd = e.metaKey || e.ctrlKey;
@@ -188,9 +216,7 @@ export default defineComponent({
         e.preventDefault(); this.newPrompt(); return;
       }
       if (cmd && (e.key === "f" || e.key === "F")) {
-        e.preventDefault();
-        this.focusSearch();
-        return;
+        e.preventDefault(); this.focusSearch(); return;
       }
       if (e.key === " " && !inEditable) {
         e.preventDefault(); this.previewSelected(); return;
@@ -213,6 +239,8 @@ export default defineComponent({
       :selected-id="prompts.selectedId"
       @select="(id: number) => prompts.select(id)"
       @toggle-fav="toggleFav"
+      @copy="copyById"
+      @edit="editById"
       @new-prompt="newPrompt"
     />
     <SiteLauncher />
@@ -226,10 +254,11 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   height: 100vh;
+  width: 100vw;
   background: var(--bg-base);
   color: var(--text-primary);
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
 }
 </style>

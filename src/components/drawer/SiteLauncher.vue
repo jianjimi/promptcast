@@ -1,11 +1,13 @@
 <!-- SiteLauncher.vue — 底部网址栏。 -->
 <script lang="ts">
 import { defineComponent } from "vue";
+import { Plus } from "lucide-vue-next";
 import { useSitesStore } from "../../stores/sites";
 import { windowOpenSettings } from "../../api/window";
 
 export default defineComponent({
   name: "SiteLauncher",
+  components: { Plus },
   computed: {
     sites() { return useSitesStore().list; },
   },
@@ -14,7 +16,6 @@ export default defineComponent({
       await useSitesStore().open(id);
     },
     async addSite() {
-      // 跳到设置页的网址快捷
       await windowOpenSettings();
     },
     initial(name: string): string {
@@ -37,7 +38,9 @@ export default defineComponent({
       <span v-else class="placeholder">{{ initial(s.name) }}</span>
     </button>
     <span class="spacer" />
-    <button class="add-btn" @click="addSite" title="添加网址">+</button>
+    <button class="add-btn" @click="addSite" title="添加网址">
+      <Plus :size="14" />
+    </button>
   </div>
 </template>
 

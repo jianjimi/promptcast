@@ -2,11 +2,12 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { VueDraggable } from "vue-draggable-plus";
+import { GripVertical, Pencil, Trash2, RefreshCw, Check, X } from "lucide-vue-next";
 import { useSitesStore } from "../../stores/sites";
 
 export default defineComponent({
   name: "SitesPanel",
-  components: { VueDraggable },
+  components: { VueDraggable, GripVertical, Pencil, Trash2, RefreshCw, Check, X },
   data() {
     return {
       adding: false,
@@ -89,7 +90,7 @@ export default defineComponent({
       @end="onDragEnd"
     >
       <div v-for="s in list" :key="s.id" class="row">
-        <span class="grip">⋮⋮</span>
+        <GripVertical :size="14" class="grip" />
         <div class="ico-box">
           <img v-if="s.favicon_data_uri" :src="s.favicon_data_uri" alt="" />
           <span v-else class="ph">{{ initial(s.name) }}</span>
@@ -97,8 +98,8 @@ export default defineComponent({
         <template v-if="editingId === s.id">
           <input v-model="eName" class="edit-name" />
           <input v-model="eUrl" class="edit-url" />
-          <button class="ico" @click="saveEdit">✓</button>
-          <button class="ico" @click="editingId = null">✕</button>
+          <button class="ico" @click="saveEdit"><Check :size="13" /></button>
+          <button class="ico" @click="editingId = null"><X :size="13" /></button>
         </template>
         <template v-else>
           <div class="meta">
@@ -106,9 +107,15 @@ export default defineComponent({
             <div class="url">{{ s.url }}</div>
           </div>
           <span class="spacer" />
-          <button class="ico" @click="refresh(s.id)" title="重新抓取图标">↻</button>
-          <button class="ico" @click="startEdit(s.id, s.name, s.url)" title="编辑">✎</button>
-          <button class="ico danger" @click="remove(s.id)" title="删除">✕</button>
+          <button class="ico" @click="refresh(s.id)" title="重新抓取图标">
+            <RefreshCw :size="12" />
+          </button>
+          <button class="ico" @click="startEdit(s.id, s.name, s.url)" title="编辑">
+            <Pencil :size="13" />
+          </button>
+          <button class="ico danger" @click="remove(s.id)" title="删除">
+            <Trash2 :size="13" />
+          </button>
         </template>
       </div>
       <p v-if="!list.length" class="empty">还没有网址</p>
@@ -170,7 +177,7 @@ export default defineComponent({
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-.grip { cursor: grab; color: var(--text-tertiary); font-size: 12px; letter-spacing: -2px; }
+.grip { cursor: grab; color: var(--text-tertiary); flex-shrink: 0; }
 .ico-box {
   width: 28px; height: 28px;
   border-radius: 6px;

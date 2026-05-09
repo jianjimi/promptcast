@@ -33,22 +33,21 @@ pub fn inject_copy_only(content: String) -> AppResult<()> {
 
 #[tauri::command]
 pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> {
-    // 1) 写入剪贴板（无论后续是否成功，前端能拿到内容）
+    // 1) 写入剪贴板
     if let Err(e) = write_clipboard(&content) {
+        tracing::error!(error = %e, "clipboard write failed");
         return Ok(InjectResult {
             ok: false,
             fallback: None,
             message: Some(format!("clipboard write failed: {e}")),
         });
     }
+    tracing::info!(len = content.len(), "clipboard written; injecting");
 
-    // 2) 隐藏抽屉，让目标窗口拿回焦点
-    if let Some(w) = app.get_webview_window("drawer") {
-        let _ = w.hide();
-    }
-    thread::sleep(Duration::from_millis(80));
+    // 2) 因为 drawer 是 NSPanel/NoActivate 风格，不会抢焦点
+    //    直接模拟粘贴；轻微等待让系统切换排序稳一些。
+    thread::sleep(Duration::from_millis(40));
 
-    // 3) 模拟 Cmd/Ctrl+V
     let modifier = if cfg!(target_os = "macos") {
         Key::Meta
     } else {
@@ -65,17 +64,24 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
             .map_err(|err| format!("release: {err}"))?;
         Ok(())
     }
-    match do_paste(modifier) {
-        Ok(()) => Ok(InjectResult {
-            ok: true,
-            fallback: None,
-            message: None,
-        }),
-        Err(msg) => Ok(InjectResult {
-            ok: false,
-            fallback: Some("clipboard".to_string()),
-            message: Some(msg),
-        }),
+    let result = do_paste(modifier);
+    // 不论结果，隐藏 drawer 让用户回到目标应用。
+    if let Some(w) = app.get_webview_window("drawer") {
+        let _ = w.hide();
+    }
+    match result {
+        Ok(()) => {
+            tracing::info!("inject ok");
+            Ok(InjectResult { ok: true, fallback: None, message: None })
+        }
+        Err(msg) => {
+            tracing::warn!(error = %msg, "inject failed; falling back to clipboard");
+            Ok(InjectResult {
+                ok: false,
+                fallback: Some("clipboard".to_string()),
+                message: Some(msg),
+            })
+        }
     }
 }
 

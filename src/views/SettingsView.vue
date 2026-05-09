@@ -1,10 +1,14 @@
 <!--
   SettingsView.vue — 设置窗口（独立）。
-  左侧 nav，右侧主区。各面板独立组件。
 -->
 <script lang="ts">
 import { defineComponent } from "vue";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import {
+  Sliders, Keyboard, Palette, FolderTree, Globe, Database,
+  ShieldCheck, Info, X, Settings as SettingsIcon, FileText,
+} from "lucide-vue-next";
 
 import HotkeyRecorder from "../components/settings/HotkeyRecorder.vue";
 import FoldersPanel from "../components/settings/FoldersPanel.vue";
@@ -18,38 +22,88 @@ import {
   unregisterHotkey,
 } from "../api/window";
 import { permissionsCheckAccessibility } from "../api/inject";
+import { logDir } from "../api";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { setThemeMode, applyPersistedTheme } from "../composables/useTheme";
+import {
+  listenAppEvent,
+  EVT_THEME_CHANGED, EVT_SETTINGS_CHANGED,
+  EVT_FOLDERS_CHANGED, EVT_TAGS_CHANGED, EVT_SITES_CHANGED,
+} from "../composables/useAppEvents";
+import { useFoldersStore } from "../stores/folders";
+import { useTagsStore } from "../stores/tags";
+import { useSitesStore } from "../stores/sites";
 import { isMac } from "../utils/format";
+import { log } from "../utils/logger";
+import type { ThemeMode } from "../types/settings";
 
 type TabKey =
   | "general" | "hotkey" | "theme" | "folders"
   | "sites" | "data" | "permissions" | "about";
 
+interface NavItem {
+  key: TabKey;
+  label: string;
+  icon: any;
+}
+
 export default defineComponent({
   name: "SettingsView",
-  components: { HotkeyRecorder, FoldersPanel, SitesPanel, DataPanel, BaseToast },
+  components: {
+    HotkeyRecorder, FoldersPanel, SitesPanel, DataPanel, BaseToast,
+    Sliders, Keyboard, Palette, FolderTree, Globe, Database,
+    ShieldCheck, Info, X, SettingsIcon, FileText,
+  },
   data() {
     return {
-      tab: "hotkey" as TabKey,
+      tab: "general" as TabKey,
       hotkeyDraft: "",
       accessibilityOk: true,
       isMacOS: isMac(),
+      logsPath: "",
+      unlisteners: [] as UnlistenFn[],
     };
   },
   computed: {
     settings() { return useSettingsStore(); },
     appVersion(): string { return "0.1.0"; },
+    navItems(): NavItem[] {
+      return [
+        { key: "general", label: "常规", icon: Sliders },
+        { key: "hotkey", label: "快捷键", icon: Keyboard },
+        { key: "theme", label: "主题", icon: Palette },
+        { key: "folders", label: "分类管理", icon: FolderTree },
+        { key: "sites", label: "网址快捷", icon: Globe },
+        { key: "data", label: "数据", icon: Database },
+        { key: "permissions", label: "权限诊断", icon: ShieldCheck },
+        { key: "about", label: "关于", icon: Info },
+      ];
+    },
   },
   async mounted() {
+    log.info("SettingsView mounted");
     if (!this.settings.loaded) await this.settings.loadAll();
     applyPersistedTheme(this.settings.data.theme);
     this.hotkeyDraft = this.settings.data.hotkey ?? "";
     this.accessibilityOk = await permissionsCheckAccessibility();
+    try { this.logsPath = await logDir(); } catch { /* */ }
+
+    this.unlisteners.push(
+      await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
+      await listenAppEvent(EVT_SETTINGS_CHANGED, () => this.settings.loadAll()),
+      await listenAppEvent(EVT_FOLDERS_CHANGED, () => useFoldersStore().loadAll()),
+      await listenAppEvent(EVT_TAGS_CHANGED, () => useTagsStore().loadAll()),
+      await listenAppEvent(EVT_SITES_CHANGED, () => useSitesStore().loadAll()),
+    );
+  },
+  beforeUnmount() {
+    for (const u of this.unlisteners) u();
   },
   methods: {
     setTab(t: TabKey) { this.tab = t; },
     close() { getCurrentWebviewWindow().close(); },
     async setTheme(mode: "system" | "light" | "dark") {
+      log.info(`theme switched to ${mode}`);
       await this.settings.set("theme", mode);
       setThemeMode(mode);
     },
@@ -60,13 +114,26 @@ export default defineComponent({
       await this.settings.set("auto_start", v);
     },
     async saveHotkey() {
+      log.info(`saving hotkey: ${this.hotkeyDraft}`);
       await this.settings.set("hotkey", this.hotkeyDraft || null);
-      if (this.hotkeyDraft) await registerHotkey(this.hotkeyDraft);
-      else await unregisterHotkey();
+      try {
+        if (this.hotkeyDraft) await registerHotkey(this.hotkeyDraft);
+        else await unregisterHotkey();
+      } catch (e) {
+        log.error(`register hotkey failed: ${e}`);
+      }
     },
     async clearHotkey() {
       this.hotkeyDraft = "";
       await this.saveHotkey();
+    },
+    async openLogsDir() {
+      if (!this.logsPath) return;
+      try {
+        await revealItemInDir(this.logsPath);
+      } catch (e) {
+        log.error(`open logs dir failed: ${e}`);
+      }
     },
   },
 });
@@ -76,35 +143,23 @@ export default defineComponent({
   <div class="settings">
     <header class="head">
       <div class="hl">
-        <span class="brand">⚙ 设置</span>
+        <SettingsIcon :size="14" class="hl-ico" />
+        <span class="brand">设置</span>
       </div>
-      <button class="close" @click="close">×</button>
+      <button class="close" @click="close">
+        <X :size="14" />
+      </button>
     </header>
     <div class="body">
       <nav class="nav">
-        <button :class="{ on: tab === 'general' }" @click="setTab('general')">
-          ⚖ 常规
-        </button>
-        <button :class="{ on: tab === 'hotkey' }" @click="setTab('hotkey')">
-          ⌨ 快捷键
-        </button>
-        <button :class="{ on: tab === 'theme' }" @click="setTab('theme')">
-          🎨 主题
-        </button>
-        <button :class="{ on: tab === 'folders' }" @click="setTab('folders')">
-          📁 分类管理
-        </button>
-        <button :class="{ on: tab === 'sites' }" @click="setTab('sites')">
-          🌐 网址快捷
-        </button>
-        <button :class="{ on: tab === 'data' }" @click="setTab('data')">
-          💾 数据
-        </button>
-        <button :class="{ on: tab === 'permissions' }" @click="setTab('permissions')">
-          🛡 权限诊断
-        </button>
-        <button :class="{ on: tab === 'about' }" @click="setTab('about')">
-          ℹ 关于
+        <button
+          v-for="n in navItems"
+          :key="n.key"
+          :class="{ on: tab === n.key }"
+          @click="setTab(n.key)"
+        >
+          <component :is="n.icon" :size="14" />
+          <span>{{ n.label }}</span>
         </button>
       </nav>
       <main class="main">
@@ -202,7 +257,6 @@ export default defineComponent({
           </div>
         </section>
 
-        <!-- 分类 / 网址 / 数据 -->
         <FoldersPanel v-if="tab === 'folders'" />
         <SitesPanel v-if="tab === 'sites'" />
         <DataPanel v-if="tab === 'data'" />
@@ -214,18 +268,29 @@ export default defineComponent({
             <div class="row">
               <div>
                 <div class="title">{{ isMacOS ? "macOS 辅助功能" : "键盘模拟权限" }}</div>
-                <div class="sub">
-                  注入功能需要此权限。未授权时按 Enter 会回退仅复制。
-                </div>
+                <div class="sub">注入功能需要此权限。未授权时按 Enter 会回退仅复制。</div>
               </div>
               <span class="spacer" />
               <span :class="['status', accessibilityOk ? 'ok' : 'bad']">
-                {{ accessibilityOk ? "✓ 已授权" : "✗ 未授权" }}
+                {{ accessibilityOk ? "已授权" : "未授权" }}
               </span>
             </div>
             <div v-if="!accessibilityOk && isMacOS" class="hint">
               打开 系统设置 → 隐私与安全 → 辅助功能，把 Prompt Hub 加入并勾选。
             </div>
+          </div>
+          <div class="card">
+            <div class="row">
+              <div>
+                <div class="title">日志</div>
+                <div class="sub">所有操作和错误会写入此目录的 app.log。出问题时把这个文件给开发者。</div>
+              </div>
+              <span class="spacer" />
+              <button class="ghost" @click="openLogsDir">
+                <FileText :size="13" /> 打开日志目录
+              </button>
+            </div>
+            <div class="path">{{ logsPath || "(加载中)" }}</div>
           </div>
         </section>
 
@@ -265,16 +330,17 @@ export default defineComponent({
   background: var(--bg-titlebar);
   -webkit-app-region: drag;
 }
+.hl { display: flex; align-items: center; gap: 8px; }
+.hl-ico { color: var(--accent); }
 .brand { font-weight: 600; font-size: 13px; }
 .close {
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 6px;
-  font-size: 16px;
   color: var(--text-secondary);
   -webkit-app-region: no-drag;
 }
-.close:hover { background: var(--bg-hover); }
+.close:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 .body { flex: 1; display: flex; min-height: 0; }
 .nav {
@@ -287,6 +353,7 @@ export default defineComponent({
 .nav button {
   height: 30px; padding: 0 10px;
   border-radius: 6px;
+  display: flex; align-items: center; gap: 8px;
   text-align: left;
   font-size: 12px;
   color: var(--text-secondary);
@@ -314,8 +381,17 @@ export default defineComponent({
 }
 .row { display: flex; align-items: center; gap: 8px; }
 .title { font-size: 13px; font-weight: 500; }
-.sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; line-height: 1.5; }
 .spacer { flex: 1; }
+.path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  background: var(--bg-input);
+  padding: 6px 8px;
+  border-radius: 6px;
+  word-break: break-all;
+}
 
 .radio-card {
   display: flex; align-items: center; gap: 10px;
@@ -332,9 +408,7 @@ export default defineComponent({
   width: 34px; height: 20px;
   display: inline-block;
 }
-.switch input {
-  position: absolute; opacity: 0; pointer-events: none;
-}
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
 .switch span {
   position: absolute; inset: 0;
   background: var(--border-strong);
@@ -388,7 +462,9 @@ export default defineComponent({
   background: var(--bg-surface);
   font-size: 12px;
   color: var(--text-secondary);
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.ghost:hover { background: var(--bg-hover); color: var(--text-primary); }
 .primary {
   height: 30px; padding: 0 14px;
   border-radius: 6px;
@@ -398,7 +474,7 @@ export default defineComponent({
   font-weight: 600;
 }
 
-.status { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+.status { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
 .status.ok { background: var(--accent-soft); color: var(--success); }
 .status.bad { background: var(--accent-soft); color: var(--danger); }
 .hint {

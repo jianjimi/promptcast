@@ -11,11 +11,20 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Folder } from "../types/folder";
 import type { Tag } from "../types/tag";
 import BaseToast from "../components/ui/BaseToast.vue";
+import { Eye, EyeOff, X, Trash2, Check } from "lucide-vue-next";
 import { useUIStore } from "../stores/ui";
+import { useSettingsStore } from "../stores/settings";
+import { applyPersistedTheme } from "../composables/useTheme";
+import {
+  listenAppEvent, EVT_THEME_CHANGED,
+} from "../composables/useAppEvents";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import type { ThemeMode } from "../types/settings";
+import { log } from "../utils/logger";
 
 export default defineComponent({
   name: "EditorView",
-  components: { BaseToast },
+  components: { BaseToast, Eye, EyeOff, X, Trash2, Check },
   data() {
     return {
       isNew: true,
@@ -30,6 +39,7 @@ export default defineComponent({
       loaded: false,
       previewMode: false,
       dirty: false,
+      unlisteners: [] as UnlistenFn[],
     };
   },
   computed: {
@@ -43,22 +53,29 @@ export default defineComponent({
     },
   },
   async mounted() {
+    log.info("EditorView mounted");
     const id = this.$route.params.id;
     if (id) {
       this.isNew = false;
       this.promptId = Number(id);
     }
+    const settings = useSettingsStore();
+    if (!settings.loaded) await settings.loadAll();
+    applyPersistedTheme(settings.data.theme);
     await Promise.all([this.loadMeta(), this.loadPrompt()]);
     this.loaded = true;
     this.$nextTick(() => {
-      // 新建：聚焦标题；编辑：聚焦内容（更常见的需求）
       const ref = this.isNew ? "titleInput" : "contentInput";
       (this.$refs[ref] as HTMLInputElement | HTMLTextAreaElement | undefined)?.focus();
     });
     document.addEventListener("keydown", this.onKey);
+    this.unlisteners.push(
+      await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
+    );
   },
   beforeUnmount() {
     document.removeEventListener("keydown", this.onKey);
+    for (const u of this.unlisteners) u();
   },
   watch: {
     title() { this.dirty = true; },
@@ -165,6 +182,8 @@ export default defineComponent({
       </div>
       <div class="hr">
         <button class="ghost" @click="previewMode = !previewMode">
+          <EyeOff v-if="previewMode" :size="13" />
+          <Eye v-else :size="13" />
           {{ previewMode ? "返回编辑" : "预览" }}
         </button>
       </div>
@@ -195,7 +214,7 @@ export default defineComponent({
           <div class="tag-input">
             <span v-for="t in selectedTags" :key="t.id" class="chip">
               #{{ t.name }}
-              <button @click="removeTag(t.id)">×</button>
+              <button @click="removeTag(t.id)"><X :size="10" /></button>
             </span>
             <select
               v-if="unselectedTags.length"
@@ -234,10 +253,14 @@ export default defineComponent({
     <div v-else class="loading">加载中…</div>
 
     <footer class="footer">
-      <button v-if="!isNew" class="ghost danger" @click="remove">删除</button>
+      <button v-if="!isNew" class="ghost danger" @click="remove">
+        <Trash2 :size="13" /> 删除
+      </button>
       <span class="spacer" />
       <button class="ghost" @click="cancel">取消</button>
-      <button class="primary" :disabled="!canSave" @click="save">保存 ⌘S</button>
+      <button class="primary" :disabled="!canSave" @click="save">
+        <Check :size="13" /> 保存 ⌘S
+      </button>
     </footer>
     <BaseToast />
   </div>
@@ -370,6 +393,9 @@ export default defineComponent({
   background: var(--bg-surface);
   font-size: 12px;
   color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .ghost:hover { background: var(--bg-hover); }
 .ghost.danger { border-color: transparent; color: var(--danger); }
@@ -381,6 +407,9 @@ export default defineComponent({
   font-size: 12px;
   font-weight: 600;
   box-shadow: var(--shadow-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .primary:hover:not(:disabled) { opacity: 0.92; }

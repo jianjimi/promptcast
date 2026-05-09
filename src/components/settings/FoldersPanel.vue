@@ -2,11 +2,12 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { VueDraggable } from "vue-draggable-plus";
+import { GripVertical, Pencil, Trash2 } from "lucide-vue-next";
 import { useFoldersStore } from "../../stores/folders";
 
 export default defineComponent({
   name: "FoldersPanel",
-  components: { VueDraggable },
+  components: { VueDraggable, GripVertical, Pencil, Trash2 },
   data() {
     return {
       newName: "",
@@ -67,7 +68,7 @@ export default defineComponent({
       @end="onDragEnd"
     >
       <div v-for="f in list" :key="f.id" class="row">
-        <span class="grip">⋮⋮</span>
+        <GripVertical :size="14" class="grip" />
         <input
           v-if="editingId === f.id"
           v-model="editingValue"
@@ -77,8 +78,12 @@ export default defineComponent({
         />
         <span v-else class="name" @dblclick="startEdit(f.id, f.name)">{{ f.name }}</span>
         <span class="spacer" />
-        <button class="ico" @click="startEdit(f.id, f.name)" title="重命名">✎</button>
-        <button class="ico danger" @click="remove(f.id)" title="删除">✕</button>
+        <button class="ico" @click="startEdit(f.id, f.name)" title="重命名">
+          <Pencil :size="13" />
+        </button>
+        <button class="ico danger" @click="remove(f.id)" title="删除">
+          <Trash2 :size="13" />
+        </button>
       </div>
       <p v-if="!list.length" class="empty">还没有分类</p>
     </VueDraggable>
@@ -123,10 +128,7 @@ export default defineComponent({
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-.grip {
-  cursor: grab; color: var(--text-tertiary);
-  font-size: 12px; letter-spacing: -2px;
-}
+.grip { cursor: grab; color: var(--text-tertiary); flex-shrink: 0; }
 .name { font-size: 13px; }
 .spacer { flex: 1; }
 .ico {
