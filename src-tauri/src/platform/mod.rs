@@ -1,11 +1,19 @@
-// platform — 跨平台封装。M4 实装：注入键盘事件、窗口非激活属性。
-// 当前为占位，留住模块结构。
+// platform — 跨平台窗口与注入封装。
+// 焦点不抢的实现因平台而异：
+//   - macOS：把 NSWindow 转 NSPanel + nonactivatingPanel style mask
+//   - Windows：SetWindowLongPtr 加 WS_EX_NOACTIVATE
+// MVP 暂时实现为最小版本：主流程依赖"按 Enter → 立即 hide → 等 80ms → 模拟粘贴"
+// 来规避焦点冲突；NSPanel/EX_NOACTIVATE 留给后续打磨。
+use tauri::WebviewWindow;
 
-// #[cfg(target_os = "macos")]
-// pub mod inject_macos;
-// #[cfg(target_os = "windows")]
-// pub mod inject_windows;
-// #[cfg(target_os = "macos")]
-// pub mod window_macos;
-// #[cfg(target_os = "windows")]
-// pub mod window_windows;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
+
+pub fn apply_panel_style(_window: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    macos::apply(_window);
+    #[cfg(target_os = "windows")]
+    windows::apply(_window);
+}

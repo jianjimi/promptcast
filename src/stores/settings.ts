@@ -1,6 +1,7 @@
-// stores/settings.ts — 应用设置（持久化在 settings 表）。
+// stores/settings.ts
 import { defineStore } from "pinia";
 import { DEFAULT_SETTINGS, type Settings } from "../types/settings";
+import { settingsGetAll, settingsSet } from "../api/settings";
 
 interface State {
   data: Settings;
@@ -14,13 +15,12 @@ export const useSettingsStore = defineStore("settings", {
   }),
   actions: {
     async loadAll(): Promise<void> {
-      // TODO: M1（settings_get_all）
+      this.data = await settingsGetAll();
+      this.loaded = true;
     },
-    async set<K extends keyof Settings>(
-      _key: K,
-      _value: Settings[K],
-    ): Promise<void> {
-      // TODO: M1（settings_set）
+    async set<K extends keyof Settings>(key: K, value: Settings[K]): Promise<void> {
+      await settingsSet(key, value);
+      this.data[key] = value;
     },
   },
 });

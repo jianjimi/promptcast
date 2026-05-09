@@ -1,15 +1,96 @@
 <!--
-  PreviewView.vue — 预览窗口（540×640）。
-  M2.5 实现：通过 IPC 拿 prompt → 渲染 Markdown → 注入/复制操作条。
+  PreviewView.vue — 预览窗口（独立 WebviewWindow）。
+  通过 IPC `prompts_get` 拉取并渲染 Markdown；底部"复制 / 注入"。
 -->
 <script lang="ts">
 import { defineComponent } from "vue";
+import { promptsGet } from "../api/prompts";
+import { foldersList } from "../api/folders";
+import { tagsList } from "../api/tags";
+import { injectPaste, injectCopyOnly } from "../api/inject";
+import { promptsRecordUse } from "../api/prompts";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { Prompt } from "../types/prompt";
+import type { Folder } from "../types/folder";
+import type { Tag } from "../types/tag";
+import { relativeTime } from "../utils/format";
+
+import MarkdownView from "../components/preview/MarkdownView.vue";
+import BaseToast from "../components/ui/BaseToast.vue";
+import { useUIStore } from "../stores/ui";
 
 export default defineComponent({
   name: "PreviewView",
+  components: { MarkdownView, BaseToast },
+  data() {
+    return {
+      prompt: null as Prompt | null,
+      folders: [] as Folder[],
+      tags: [] as Tag[],
+      error: "",
+    };
+  },
   computed: {
-    promptId(): string {
-      return (this.$route.params.id as string) ?? "";
+    folderName(): string {
+      if (!this.prompt?.folder_id) return "(未分类)";
+      return this.folders.find((f) => f.id === this.prompt!.folder_id)?.name ?? "—";
+    },
+    tagNames(): string[] {
+      if (!this.prompt) return [];
+      const map = new Map(this.tags.map((t) => [t.id, t.name]));
+      return this.prompt.tag_ids.map((id) => map.get(id) ?? "?");
+    },
+    lastUsed(): string {
+      return relativeTime(this.prompt?.last_used_at);
+    },
+    wordCount(): number {
+      return this.prompt?.content.length ?? 0;
+    },
+  },
+  async mounted() {
+    const id = Number(this.$route.params.id);
+    if (!id) {
+      this.error = "缺少 prompt id";
+      return;
+    }
+    try {
+      const [prompt, folders, tags] = await Promise.all([
+        promptsGet(id), foldersList(), tagsList(),
+      ]);
+      this.prompt = prompt;
+      this.folders = folders;
+      this.tags = tags;
+    } catch (e) {
+      this.error = String(e);
+    }
+    document.addEventListener("keydown", this.onKey);
+  },
+  beforeUnmount() {
+    document.removeEventListener("keydown", this.onKey);
+  },
+  methods: {
+    async copyOnly() {
+      if (!this.prompt) return;
+      await injectCopyOnly(this.prompt.content);
+      await promptsRecordUse(this.prompt.id);
+      useUIStore().pushToast("已复制到剪贴板", "success");
+    },
+    async inject() {
+      if (!this.prompt) return;
+      const r = await injectPaste(this.prompt.content);
+      await promptsRecordUse(this.prompt.id);
+      if (!r.ok) {
+        useUIStore().pushToast("已复制到剪贴板", "info");
+      } else {
+        getCurrentWebviewWindow().close();
+      }
+    },
+    onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") getCurrentWebviewWindow().close();
+      if (e.key === "Enter" && !((e.target as HTMLElement)?.tagName === "TEXTAREA")) {
+        e.preventDefault();
+        this.inject();
+      }
     },
   },
 });
@@ -17,10 +98,39 @@ export default defineComponent({
 
 <template>
   <div class="preview">
-    <header class="preview-header">预览 · {{ promptId || "(empty)" }}</header>
-    <main class="preview-body">
-      <p class="placeholder">M0 骨架 · 待 M2.5 实现 Markdown 渲染与操作条</p>
+    <header class="head">
+      <div class="hl">
+        <span class="brand">预览</span>
+        <span v-if="prompt" class="title-small">· {{ prompt.title }}</span>
+      </div>
+    </header>
+    <div v-if="error" class="error">{{ error }}</div>
+    <div v-else-if="prompt" class="meta">
+      <div class="meta-line">
+        <span>📁 {{ folderName }}</span>
+        <span class="dot">·</span>
+        <span>使用 {{ prompt.use_count }} 次</span>
+        <span class="dot">·</span>
+        <span>最近 {{ lastUsed }}</span>
+        <span class="spacer" />
+        <span v-if="prompt.is_favorite" class="star">★</span>
+        <span v-if="prompt.is_pinned" class="pin">📌</span>
+      </div>
+      <h1 class="title">{{ prompt.title }}</h1>
+      <div class="tags">
+        <span v-for="t in tagNames" :key="t" class="tag">#{{ t }}</span>
+      </div>
+    </div>
+    <main v-if="prompt" class="body">
+      <MarkdownView :source="prompt.content" />
     </main>
+    <footer v-if="prompt" class="footer">
+      <span class="stat">{{ wordCount }} 字</span>
+      <span class="spacer" />
+      <button class="btn" @click="copyOnly">复制</button>
+      <button class="btn primary" @click="inject">注入到当前窗口</button>
+    </footer>
+    <BaseToast />
   </div>
 </template>
 
@@ -32,21 +142,72 @@ export default defineComponent({
   background: var(--bg-surface);
   color: var(--text-primary);
 }
-.preview-header {
+.head {
   height: 48px;
   padding: 0 16px;
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 13px;
+  background: var(--bg-titlebar);
+  -webkit-app-region: drag;
 }
-.preview-body {
-  flex: 1;
-  padding: 20px;
+.hl { display: flex; align-items: center; gap: 8px; }
+.brand { font-weight: 600; font-size: 13px; }
+.title-small { font-size: 11px; color: var(--text-tertiary); }
+.error { padding: 24px; color: var(--danger); }
+.meta {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border);
 }
-.placeholder {
-  font-size: 12px;
+.meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
   color: var(--text-tertiary);
+  margin-bottom: 8px;
 }
+.dot { color: var(--border-strong); }
+.spacer { flex: 1; }
+.star { color: var(--star); }
+.pin { font-size: 11px; }
+.title { font-size: 18px; font-weight: 700; }
+.tags { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.tag {
+  font-size: 10px;
+  background: var(--bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+.body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-base);
+}
+.stat { font-size: 11px; color: var(--text-tertiary); }
+.btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.btn:hover { background: var(--bg-hover); }
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 0;
+  font-weight: 600;
+  padding: 0 14px;
+  box-shadow: var(--shadow-sm);
+}
+.btn.primary:hover { opacity: 0.92; }
 </style>
