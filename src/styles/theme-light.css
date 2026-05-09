@@ -1,0 +1,36 @@
+/* theme-light.css — 浅色主题颜色变量。useTheme.ts 负责切换 [data-theme]。 */
+[data-theme="light"] {
+  --bg-base: #fafafb;
+  --bg-surface: #ffffff;
+  --bg-titlebar: rgba(255, 255, 255, 0.9);
+  --bg-hover: #f4f4f5;
+  --bg-selected: #f4f4f5;
+  --bg-input: #ffffff;
+  --bg-input-disabled: #fafafa;
+  --bg-glass: rgba(255, 255, 255, 0.9);
+
+  --border: #ececee;
+  --border-strong: #d4d4d8;
+
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+
+  --accent: #18181b;       /* 中性主调（黑） */
+  --accent-fg: #ffffff;
+  --accent-soft: #f4f4f5;
+
+  --star: #f59e0b;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 24px 48px rgba(0, 0, 0, 0.09);
+  --shadow-inner-input: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+
+  color-scheme: light;
+}
