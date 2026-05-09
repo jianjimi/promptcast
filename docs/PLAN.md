@@ -57,24 +57,32 @@
 │   ├── App.vue              路由 outlet（极薄）
 │   │
 │   ├── views/               顶层视图（每个对应一个 Tauri 窗口）
-│   │   ├── DrawerView.vue       侧边抽屉主窗口
+│   │   ├── DrawerView.vue       侧边抽屉主窗口（窄高条，仅列表）
+│   │   ├── PreviewView.vue      预览独立窗口（只读 Markdown 渲染 + 注入/复制）
 │   │   ├── EditorView.vue       新建/编辑独立窗口
 │   │   └── SettingsView.vue     设置独立窗口
 │   │
 │   ├── components/          可复用组件（每个 ≤ 250 行）
 │   │   ├── drawer/
-│   │   │   ├── SearchBar.vue        顶部搜索框 + pin 按钮
-│   │   │   ├── FilterChips.vue      分类/标签筛选
-│   │   │   ├── PromptList.vue       中间列表（虚拟滚动可选）
+│   │   │   ├── SearchBar.vue        顶部搜索框
+│   │   │   ├── FilterChips.vue      分类/标签筛选（Tab 循环切换）
+│   │   │   ├── PromptList.vue       列表（占据抽屉主体）
 │   │   │   ├── PromptListItem.vue   单条列表项（标题+片段+收藏星）
-│   │   │   └── PromptDetail.vue     右侧详情（只读 Markdown 渲染）
+│   │   │   ├── SiteLauncher.vue     底部 favicon 横向列表，点击在浏览器打开
+│   │   │   └── HintBar.vue          底部快捷键提示条（贴在 SiteLauncher 下）
+│   │   ├── preview/
+│   │   │   ├── PreviewHeader.vue    元数据 + 标题 + 标签
+│   │   │   ├── MarkdownView.vue     Markdown 渲染（marked + DOMPurify）
+│   │   │   └── PreviewActions.vue   底部"复制 / 注入"按钮条
 │   │   ├── editor/
 │   │   │   ├── TitleField.vue
 │   │   │   └── MarkdownField.vue    Markdown 编辑（轻量 textarea + 预览切换）
 │   │   ├── settings/
 │   │   │   ├── HotkeyRecorder.vue   快捷键录制控件
 │   │   │   ├── ThemeSelector.vue
-│   │   │   └── DataPanel.vue        导入/导出 JSON
+│   │   │   ├── DataPanel.vue        导入/导出 JSON
+│   │   │   ├── SitesPanel.vue       管理底部网址快捷（增删改 + 拖拽排序 + 自动取 favicon）
+│   │   │   └── FoldersPanel.vue     文件夹（分类）管理 + 拖拽排序
 │   │   └── ui/                  基础控件
 │   │       ├── BaseButton.vue
 │   │       ├── BaseInput.vue
@@ -206,6 +214,17 @@ CREATE TABLE settings (
   value TEXT NOT NULL
 );
 
+CREATE TABLE sites (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  url         TEXT NOT NULL,
+  favicon_blob BLOB,                -- 自动抓取并缓存（PNG/ICO 字节）
+  favicon_mime TEXT,                -- 'image/png' 等
+  favicon_fetched_at INTEGER,       -- 上次抓取时间，用于过期重抓
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+
 CREATE INDEX idx_prompts_folder    ON prompts(folder_id);
 CREATE INDEX idx_prompts_lastused  ON prompts(last_used_at);
 CREATE INDEX idx_prompts_pinned    ON prompts(is_pinned, is_favorite);
@@ -250,7 +269,14 @@ CREATE INDEX idx_prompts_pinned    ON prompts(is_pinned, is_favorite);
 | `prompts_toggle_pin` | `{ id }` | `Prompt` | |
 | `prompts_record_use` | `{ id }` | `void` | 注入/复制成功后调用，更新 use_count + last_used_at |
 | `folders_list` / `_create` / `_rename` / `_delete` | | | |
+| `folders_reorder` | `{ ordered_ids: number[] }` | `void` | 拖拽后批量更新 sort_order |
 | `tags_list` / `_create` / `_rename` / `_delete` | | | |
+| `sites_list` | | `Site[]` | 不返回 blob，仅 base64 dataURI |
+| `sites_create` | `{ name, url }` | `Site` | 创建后异步抓 favicon |
+| `sites_update` / `sites_delete` | | | |
+| `sites_reorder` | `{ ordered_ids: number[] }` | `void` | 拖拽后批量更新 |
+| `sites_refresh_favicon` | `{ id }` | `Site` | 强制重抓 |
+| `sites_open` | `{ id }` | `void` | 调系统默认浏览器打开 url |
 | `settings_get_all` / `settings_set` | | | |
 | `inject_paste` | `{ content }` | `{ ok: bool, fallback: 'clipboard'\|null }` | 写剪贴板 + 隐藏窗口 + 模拟粘贴 |
 | `inject_copy_only` | `{ content }` | `void` | |
@@ -283,10 +309,36 @@ CREATE INDEX idx_prompts_pinned    ON prompts(is_pinned, is_favorite);
 - 监听系统外观变化（macOS `NSDistributedNotificationCenter` / Win `WM_SETTINGCHANGE`），通过 Tauri 事件广播给前端
 - 毛玻璃：macOS `NSVisualEffectView`、Win `DwmEnableBlurBehindWindow` 或 `SetWindowCompositionAttribute`（acrylic）；用 `tauri-plugin-vibrancy`
 
-### 8.5 三窗口模型
-- 抽屉、编辑、设置 — 三个独立 `WebviewWindow`，共用同一 Vue bundle，路由区分
-- 抽屉默认 `decorations: false, transparent: true, skip_taskbar: true, always_on_top: true(可关)`
-- 编辑/设置：标准窗口，可独立打开、可同时存在
+### 8.5 四窗口模型
+- 抽屉（drawer）、预览（preview）、编辑（editor）、设置（settings） — 四个独立 `WebviewWindow`，共用同一 Vue bundle，路由区分
+- 抽屉：窄高条 **400×720**，从屏幕侧边滑入；`decorations: false, transparent: true, skip_taskbar: true, resizable: false`，不抢焦点（NSPanel / WS_EX_NOACTIVATE）
+- 预览：独立浮窗 **540×640**，按 Space 从抽屉打开；可固定（不自动关闭），关闭后回到抽屉；同样不抢焦点
+- 编辑、设置：标准窗口，可调整大小，标准 decorations，独立任务栏图标（编辑允许多开，每条 prompt 一个；设置全局唯一）
+
+### 8.6 抽屉的键盘交互（核心）
+
+| 按键 | 动作 |
+|---|---|
+| ↑ / ↓ | 在列表中切换选中项 |
+| `Tab` / `Shift+Tab` | 在分类 chips 间循环切换；不参与搜索框 / 列表 / 网址栏的焦点 |
+| `Enter` | 注入选中项（默认动作，失败回退复制） |
+| `⌘C` / `Ctrl+C` | 仅复制选中项 |
+| `Space` | 打开预览窗口（不关闭抽屉） |
+| `⌘E` / `Ctrl+E` | 打开编辑窗口编辑选中项 |
+| `⌘N` / `Ctrl+N` | 打开编辑窗口新建 |
+| `⌘F` / `Ctrl+F` | 聚焦搜索框（默认已聚焦，此快捷键用于清空后重聚焦） |
+| `Esc` | 隐藏抽屉（除非已 pin） |
+
+### 8.7 网址快捷栏
+
+- 抽屉底部固定一行 favicon（横向滚动），仅作为浏览器书签使用
+- 点击 → `sites_open { id }` → Rust 调用 `tauri-plugin-opener` / `open` crate 打开系统默认浏览器
+- favicon 抓取：
+  - 创建/编辑时立即触发后台 fetch（`reqwest`）
+  - 顺序尝试：`<host>/favicon.ico` → 解析 HTML 找 `<link rel="icon">` → 兜底用首字母占位
+  - 抓到后写入 `sites.favicon_blob`，前端用 `data:` URI 渲染
+  - 过期策略：`favicon_fetched_at` 超过 30 天则后台重抓
+- 排序：设置页用 `vue-draggable-plus` 拖拽 → `sites_reorder`
 
 ## 9. 协作与编码约定
 

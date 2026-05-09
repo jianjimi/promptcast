@@ -8,9 +8,9 @@
 
 - [ ] **M0-1** 在 `~/Desktop/提示词工具/` 下用 `npm create tauri-app@latest` 生成 Tauri 工程，命名 `app`。前端选 Vue + TypeScript。生成后将其内容**移到当前目录根**（保留 `docs/`、`prototype/`、`.git/`、`.gitignore`）。
   - 验收：`pnpm tauri dev` 启动并显示默认欢迎页
-- [ ] **M0-2** 拆出 `src/views/{DrawerView,EditorView,SettingsView}.vue` 三个空视图，配 vue-router 路由 `/drawer`、`/editor`、`/settings`
-  - 验收：手动改 URL hash 能切换三个视图
-- [ ] **M0-3** 在 `src-tauri/tauri.conf.json` 配置三个 Webview 窗口（label: `drawer/editor/settings`），各自加载对应路由 hash
+- [ ] **M0-2** 拆出 `src/views/{DrawerView,PreviewView,EditorView,SettingsView}.vue` 四个空视图，配 vue-router 路由 `/drawer`、`/preview/:id`、`/editor/:id?`、`/settings`
+  - 验收：手动改 URL hash 能切换四个视图
+- [ ] **M0-3** 在 `src-tauri/tauri.conf.json` 配置四个 Webview 窗口（label: `drawer/preview/editor/settings`），各自加载对应路由 hash
   - 验收：`tauri dev` 后能用 `WebviewWindow` API 各自打开
 - [ ] **M0-4** 引入 Pinia 选项式语法骨架（`stores/{prompts,folders,tags,settings,ui}.ts`），仅写空 state 与 TODO 注释
 - [ ] **M0-5** 写 `src/styles/{tokens,theme-light,theme-dark,reset,global}.css`，定义颜色/间距/字体的 CSS 变量；`useTheme.ts` 监听系统主题切换 `data-theme`
@@ -38,30 +38,52 @@
 
 ## M2 · 抽屉 UI（2 天）
 
-- [ ] **M2-1** `views/DrawerView.vue` 实现两栏布局骨架（左 list 区、右 detail 区，比例 5:5 或 4:6）
-- [ ] **M2-2** `components/drawer/SearchBar.vue`：搜索框 + pin 按钮 + "新建"按钮（打开 EditorView 窗口）
+- [ ] **M2-1** `views/DrawerView.vue` 实现单列布局：标题栏 / 搜索 / 筛选 / 列表 / 底部 hint 条
+- [ ] **M2-2** `components/drawer/SearchBar.vue`：搜索框 + pin 按钮 + 排序下拉 + 设置入口 + "新建"按钮（打开 EditorView 新建）
 - [ ] **M2-3** `components/drawer/FilterChips.vue`：水平滚动的分类（"全部 / 收藏" + 文件夹列表 + 标签下拉）；多选时合取
 - [ ] **M2-4** `components/drawer/PromptList.vue` + `PromptListItem.vue`：列表渲染、键盘 ↑↓ 选中、Enter 触发注入；置顶项独立 section 永远在顶部
 - [ ] **M2-5** `composables/useFuzzySearch.ts`：Fuse.js 包装，搜索域 = title + content + tags
   - 验收：空搜索词返回原列表；输入"foo"返回评分排序结果
-- [ ] **M2-6** `components/drawer/PromptDetail.vue`：右侧只读 Markdown 渲染（`marked` + `DOMPurify`）；底部"复制 / 注入 / 编辑 / 删除"操作条
+- [ ] **M2-6** `components/drawer/HintBar.vue`：底部快捷键提示条（↵注入 / ⌘C复制 / ⌘E编辑 / Space预览 / 计数）
+- [ ] **M2-6b** `components/drawer/SiteLauncher.vue`：横向 favicon 列表，绑定 `sites_open`，末尾"+"按钮跳到设置网址快捷页
+- [ ] **M2-6c** Tab / Shift+Tab 在 FilterChips 内循环切换；按住 Tab 不会跑到列表或搜索框
 - [ ] **M2-7** `components/ui/BaseToast.vue` + `stores/ui.ts` toast 队列：注入失败时弹"已复制到剪贴板"
 - [ ] **M2-8** 排序下拉：最近使用 / 创建时间 / 更新时间 / 标题 A-Z（持久化到 settings）
-- [ ] **M2-9** 抽屉滑入/滑出动画（CSS `transform: translateX`），窗口宽度 800px
+- [ ] **M2-9** 抽屉滑入/滑出动画（CSS `transform: translateX`），窗口尺寸 400×720
 - [ ] **M2-10** Git commit：`[M2] drawer UI`
 
+## M2.5 · 预览窗口（半天）
+
+- [ ] **M2.5-1** `views/PreviewView.vue`：从抽屉按 Space 打开；通过 IPC `window_open_preview { id }` 创建窗口
+- [ ] **M2.5-2** `components/preview/PreviewHeader.vue`：元数据条 + 标题 + 标签 + 收藏/置顶图标
+- [ ] **M2.5-3** `components/preview/MarkdownView.vue`：复用 `utils/markdown.ts`，渲染只读 Markdown
+- [ ] **M2.5-4** `components/preview/PreviewActions.vue`：底部 字数/token 统计 + "复制 / 注入"按钮
+- [ ] **M2.5-5** 预览窗同样不抢焦点（与抽屉一致），按 Esc 关闭
+- [ ] **M2.5-6** Git commit：`[M2.5] preview window`
+
 ---
+
+## M2.8 · 网址数据层与抓取（半天，与 M3 并行可）
+
+- [ ] **M2.8-1** `db/sites.rs` + `commands/sites.rs`：list/create/update/delete/reorder/refresh_favicon/open
+- [ ] **M2.8-2** Rust 端用 `reqwest` 抓 favicon（先试 `/favicon.ico`，失败回退解析 HTML `<link rel="icon">`）
+  - 验收：输入 `https://chat.openai.com` 能拿到正确 favicon
+- [ ] **M2.8-3** `commands/sites.rs::sites_open` 调 `tauri-plugin-opener::open` 打开浏览器
+- [ ] **M2.8-4** `stores/sites.ts` + `api/sites.ts` 前端封装；favicon 用 `data:` URI 渲染
+- [ ] **M2.8-5** Git commit：`[M2.8] sites data layer`
 
 ## M3 · 编辑与设置窗口（1.5 天）
 
 - [ ] **M3-1** `EditorView.vue`：标题 + Markdown textarea + 标签多选 + 文件夹下拉；右下"保存 / 取消"
   - 验收：未改动时关闭不提示；改动后关闭弹"放弃修改"确认
 - [ ] **M3-2** `MarkdownField.vue`：纯 textarea + Tab 键插入两空格 + 实时字数；右上切换"编辑/预览"
-- [ ] **M3-3** `SettingsView.vue` 标签页：常规 / 快捷键 / 主题 / 数据 / 关于
+- [ ] **M3-3** `SettingsView.vue` 标签页：常规 / 快捷键 / 主题 / 分类管理 / 网址快捷 / 数据 / 关于
 - [ ] **M3-4** `HotkeyRecorder.vue`：捕获用户按键组合，验证非空并避免与系统冲突
 - [ ] **M3-5** `DataPanel.vue`：导入 JSON（弹文件选择）、导出 JSON（弹保存对话框）、清空所有数据（二次确认）
 - [ ] **M3-6** "权限诊断"区：检测辅助功能权限、检测全局快捷键注册状态；引导跳转到系统设置
-- [ ] **M3-7** Git commit：`[M3] editor & settings windows`
+- [ ] **M3-7** `components/settings/FoldersPanel.vue`：列表 + 重命名 + 删除（带迁移确认）+ 拖拽排序（`vue-draggable-plus`）
+- [ ] **M3-8** `components/settings/SitesPanel.vue`：列表（favicon 缩略图 + 名称 + url）+ 增删改 + 拖拽排序 + "重新获取图标"按钮
+- [ ] **M3-9** Git commit：`[M3] editor & settings windows`
 
 ---
 
