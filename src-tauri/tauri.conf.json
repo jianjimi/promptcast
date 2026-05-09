@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "drawer",
@@ -17,7 +18,7 @@
         "url": "index.html#/drawer",
         "width": 400,
         "height": 720,
-        "minWidth": 400,
+        "minWidth": 380,
         "minHeight": 480,
         "resizable": true,
         "decorations": false,
@@ -25,7 +26,12 @@
         "alwaysOnTop": false,
         "skipTaskbar": true,
         "visible": true,
-        "center": true
+        "center": true,
+        "shadow": true,
+        "windowEffects": {
+          "effects": ["hudWindow", "acrylic"],
+          "state": "active"
+        }
       }
     ],
     "security": {
@@ -35,12 +41,22 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Prompt Hub — 提示词管理与一键注入",
+    "longDescription": "跨平台桌面提示词管理工具：全局快捷键唤起、模糊搜索、分类标签、一键注入到任何输入框。",
+    "copyright": "Copyright © 2026 xiao",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "wix": {}
+    }
   }
 }
