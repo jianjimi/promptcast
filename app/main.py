@@ -8,11 +8,12 @@ from PyQt6.QtWidgets import QApplication
 
 from app.bootstrap import seed_if_empty
 from app.config import APP_NAME, ensure_dirs
+from app.controller import AppController
 from app.db.connection import get_conn
 from app.db.repositories import settings as settings_repo
 from app.logging_setup import setup_logging
 from app.services.theme import manager as theme_manager
-from app.ui.windows.drawer import DrawerWindow
+from app.tray import install as install_tray
 
 log = logging.getLogger(__name__)
 
@@ -29,13 +30,11 @@ def run() -> int:
     get_conn()
     seed_if_empty()
 
-    theme_choice = settings_repo.get("theme", "system")
-    theme_manager().apply(theme_choice)
+    theme_manager().apply(settings_repo.get("theme", "system"))
 
-    drawer = DrawerWindow()
-    drawer.requestHide.connect(drawer.hide)
-    drawer.reload()
-    drawer.show()
+    controller = AppController()
+    install_tray(controller)
+    controller.show_drawer_initial()
 
     return app.exec()
 

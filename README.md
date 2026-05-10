@@ -1,76 +1,104 @@
 # PromptCast
 
-> 仓库地址：<https://cnb.cool/liuxiaogang/promptcast>
+Keyboard-driven prompt drawer. Press a global hotkey, pick a prompt, hit Enter — it gets pasted straight into the app you were just using.
 
-跨平台桌面提示词管理工具：全局快捷键唤起、模糊搜索、分类标签、一键注入到任何输入框。
+Pure Python + PyQt6. Windows + macOS.
 
-> macOS 11+ / Windows 10 1809+ · Tauri 2 · Vue 3 · ~8 MB 安装包
+> Mirror repo: https://cnb.cool/liuxiaogang/promptcast
 
-## 功能
+## Features
 
-- **全局快捷键唤起**：在任何应用中按下自定义快捷键即弹出抽屉
-- **一键注入**：选中提示词回车 → 自动填入上一个聚焦窗口的输入框（剪贴板 + 模拟 ⌘V/Ctrl+V）
-- **失败回退**：注入失败时静默回退仅复制 + Toast 提示
-- **分类与标签**：单层文件夹（可拖拽排序）+ 多对多标签
-- **模糊搜索**：搜索域 = 标题 + 内容 + 标签
-- **置顶 / 收藏**：双独立维度，按使用频率/创建/更新/标题排序
-- **预览窗口**：独立窗口里渲染 Markdown
-- **网址快捷栏**：抽屉底部一行 favicon，自动抓取，点击在浏览器打开
-- **本地 SQLite** + JSON 导入导出（合并 / 替换两种模式）
+- 🪟 Frameless **400×720 drawer**, summoned by a global hotkey, dismissed on Esc / focus loss
+- 🔍 Fuzzy search, folder & tag filter chips, ★ favorites, pinning
+- ✏️ Markdown editor + preview window (markdown-it-py + Pygments)
+- 📋 Smart **paste injection** — restores foreground app and synthesizes Ctrl/⌘+V; copy-only fallback when blocked
+- 🌓 Light / Dark / System theme (designed against a single token palette)
+- 🔗 Site launcher row with auto-fetched favicons
+- 💾 SQLite persistence + JSON import/export (merge or replace)
+- 🚀 Optional auto-start (Windows registry / macOS LaunchAgent)
+- 📌 System tray for quick access
 
-## 键盘交互（在抽屉里）
+## Requirements
 
-| 按键 | 动作 |
+- Python **3.11+**
+- Windows 10+ or macOS 11+
+
+## Install & run
+
+```bash
+# create a virtualenv (recommended)
+python -m venv .venv
+. .venv/Scripts/activate          # Windows
+# source .venv/bin/activate       # macOS
+
+pip install -r requirements.txt
+python -m app
+```
+
+Default global hotkey: `Ctrl + Shift + Space` (Win) / `⌃ ⇧ Space` (mac). Change it in **Settings → 热键**.
+
+## Project layout
+
+```
+app/
+├── main.py               # entry: ensure dirs, init theme, install tray, start controller
+├── controller.py         # wires drawer + companion windows + services
+├── bootstrap.py          # first-run sample data
+├── config.py             # APPDATA paths
+├── logging_setup.py
+├── tray.py               # QSystemTrayIcon
+├── db/
+│   ├── connection.py     # sqlite3 + WAL + foreign keys
+│   ├── migrations.py     # PRAGMA user_version schema
+│   └── repositories/     # prompts/folders/tags/sites/settings
+├── models/               # @dataclass entities
+├── services/
+│   ├── theme.py          # QSS rendering + system-scheme tracking
+│   ├── hotkey.py         # pynput → Qt signal bridge
+│   ├── inject.py         # clipboard + activate + paste pipeline
+│   ├── favicon.py        # async favicon fetch
+│   ├── importer.py       # JSON import/export
+│   └── autostart.py      # Win registry / macOS LaunchAgent
+├── platform/             # foreground capture + activation
+│   ├── base.py
+│   ├── windows.py        # SetForegroundWindow + AttachThreadInput
+│   └── macos.py          # NSWorkspace + NSRunningApplication + AXIsProcessTrusted
+└── ui/
+    ├── windows/          # drawer / editor / preview / settings
+    ├── widgets/          # search bar, chips, prompt list, hint bar, ...
+    └── styles/           # tokens.py + base.qss template
+docs/
+├── PYTHON_REWRITE_PLAN.md
+└── PYTHON_REWRITE_TODO.md
+```
+
+## Tests
+
+```bash
+pip install pytest
+python -m pytest -q
+```
+
+## Packaging
+
+```bash
+pip install pyinstaller
+pyinstaller --noconsole --name PromptCast --onedir -p . app/__main__.py
+```
+
+## Hotkey shortcuts (drawer focused)
+
+| Key | Action |
 |---|---|
-| `↑` / `↓` | 切换列表选中项 |
-| `Enter` | 注入选中项（默认）/ 仅复制（设置中可改） |
-| `⌘C` / `Ctrl+C` | 仅复制 |
-| `⌘E` / `Ctrl+E` | 编辑选中 |
-| `⌘N` / `Ctrl+N` | 新建 |
-| `⌘F` / `Ctrl+F` | 聚焦搜索框 |
-| `Tab` / `Shift+Tab` | 在分类 chips 间循环切换 |
-| `Space` | 打开预览窗口 |
-| `Esc` | 隐藏抽屉（已 pin 时无效） |
-| `⌘S` / `Ctrl+S` | 保存（在编辑窗口） |
-
-## 开发
-
-```bash
-pnpm install
-pnpm tauri dev
-```
-
-打包：
-
-```bash
-pnpm tauri build
-# macOS: src-tauri/target/release/bundle/dmg/*.dmg
-# Windows: src-tauri/target/release/bundle/msi/*.msi
-```
-
-## 首次使用
-
-1. 启动后会弹出 400×720 的抽屉，全局快捷键尚未设置
-2. 点击右上 ⚙ 进入「设置 → 快捷键」录制并应用（建议三键组合，如 ⌘⇧P / Ctrl+Shift+P）
-3. **macOS**：还需到 系统设置 → 隐私与安全 → 辅助功能 把 PromptCast 加入并勾选，否则注入会回退到仅复制
-4. **Windows**：通常无需额外授权；如果想注入到以管理员权限运行的窗口（如管理员命令行），需要把 PromptCast 也以管理员权限启动（UIPI 限制）
-
-## 项目结构
-
-```
-src/         前端 Vue 3（Options API）
-src-tauri/   后端 Rust + Tauri 2
-docs/        架构文档与里程碑
-prototype/   pencil 原型源文件（用 pencil.app 打开）
-```
-
-设计架构详见 `docs/PLAN.md`，里程碑与待办详见 `docs/TODO.md`。
-
-## 已知限制（v0.1.0）
-
-- 抽屉弹出时会短暂获得焦点（NSPanel/`WS_EX_NOACTIVATE` 留待后续）；目前流程"按 Enter → 立即隐藏 → 等 80ms → 模拟粘贴"已可用
-- 变量占位符 `{{var}}` 暂未实现，列入 v2
-- 无云同步；多设备请通过「设置 → 数据」导出 JSON 后手动同步
+| `↑ / ↓` | move selection |
+| `Enter` | inject into target app |
+| `Ctrl/⌘ + C` | copy only |
+| `Ctrl/⌘ + E` | edit selected |
+| `Ctrl/⌘ + N` | new prompt |
+| `Ctrl/⌘ + F` | focus search |
+| `Tab / Shift+Tab` | cycle filter chips |
+| `Space` | preview |
+| `Esc` | clear search → hide drawer |
 
 ## License
 
