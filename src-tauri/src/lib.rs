@@ -13,9 +13,16 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutEvent, ShortcutSta
 
 use crate::db::DbState;
 
-/// 跟踪「按下全局快捷键的瞬间，谁是 frontmost app」的 PID。
-/// 注入时用它把目标应用拉回前台再粘贴。
-pub struct LastFrontmost(pub Mutex<Option<i32>>);
+/// 跟踪「按下全局快捷键的瞬间」的目标窗口。
+/// - pid: 跨平台都用得上（macOS 用它 NSRunningApplication 激活）
+/// - hwnd: 仅 Windows 用，比 PID 更准（多窗口应用）
+/// 注入时优先用 hwnd，再 fallback 到 pid。
+#[derive(Default, Clone, Copy)]
+pub struct FrontmostTarget {
+    pub pid: Option<i32>,
+    pub hwnd: Option<isize>,
+}
+pub struct LastFrontmost(pub Mutex<FrontmostTarget>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -42,10 +49,22 @@ pub fn run() {
             let db_path = app_data.join("prompt_hub.sqlite");
             let state = DbState::open(&db_path).expect("init db");
             app.manage(state);
-            app.manage(LastFrontmost(Mutex::new(None)));
+            app.manage(LastFrontmost(Mutex::new(FrontmostTarget::default())));
+
+            // 列出所有从 tauri.conf.json 预声明的窗口（用于确认 conf 是否生效）
+            let labels: Vec<String> = app
+                .webview_windows()
+                .keys()
+                .cloned()
+                .collect();
+            tracing::info!(?labels, "webview windows at startup");
 
             if let Some(drawer) = app.get_webview_window("drawer") {
                 crate::platform::apply_panel_style(&drawer);
+                #[cfg(debug_assertions)]
+                {
+                    drawer.open_devtools();
+                }
             } else {
                 tracing::warn!("drawer window not found at startup");
             }
@@ -58,6 +77,8 @@ pub fn run() {
                 if let Some(shortcut) = s.hotkey {
                     register_global_hotkey(app.handle(), &shortcut);
                 }
+                // 启动时把持久化的 auto_start 偏好同步到系统层
+                crate::commands::settings::apply_autostart(app.handle(), s.auto_start);
             }
 
             Ok(())
@@ -151,15 +172,24 @@ fn register_global_hotkey(app: &tauri::AppHandle, shortcut: &str) {
 
             // 1) 记录当前 frontmost（必须在我们激活之前 — 那时候我们的
             //    PID 还不是 frontmost）。
-            match crate::platform::frontmost_app_pid() {
+            let pid_now = crate::platform::frontmost_app_pid();
+            let hwnd_now = crate::platform::frontmost_window_handle();
+            match pid_now {
                 Some(pid) if pid != our_pid => {
                     if let Some(state) = app_clone.try_state::<LastFrontmost>() {
-                        *state.0.lock() = Some(pid);
-                        tracing::info!(target_pid = pid, "saved last frontmost pid");
+                        *state.0.lock() = FrontmostTarget {
+                            pid: Some(pid),
+                            hwnd: hwnd_now,
+                        };
+                        tracing::info!(
+                            target_pid = pid,
+                            target_hwnd = hwnd_now.unwrap_or(0),
+                            "saved last frontmost target"
+                        );
                     }
                 }
                 Some(pid) => {
-                    tracing::warn!(pid, "frontmost is self; keeping previous saved pid");
+                    tracing::warn!(pid, "frontmost is self; keeping previous saved target");
                 }
                 None => {
                     tracing::warn!("no frontmost app detected");

@@ -21,6 +21,7 @@ export default defineComponent({
         .replace(/CmdOrCtrl/g, isMac() ? "⌘" : "Ctrl")
         .replace(/Shift/g, isMac() ? "⇧" : "Shift")
         .replace(/Alt/g, isMac() ? "⌥" : "Alt")
+        .replace(/Super/g, isMac() ? "⌘" : "Win")
         .replace(/Meta/g, isMac() ? "⌘" : "Win")
         .replace(/\+/g, " ");
     },
@@ -38,8 +39,17 @@ export default defineComponent({
       e.preventDefault();
       e.stopPropagation();
       if (e.key === "Escape") { this.cancel(); return; }
+      // 区分 Win/Cmd 与 Ctrl：
+      //   - macOS: metaKey = ⌘ → 用作 CmdOrCtrl（与 Win 上 Ctrl 互通）
+      //   - Windows: metaKey = Win 键 → 单独标 Super；ctrlKey 才是 CmdOrCtrl
+      const mac = isMac();
       const mods: string[] = [];
-      if (e.metaKey || e.ctrlKey) mods.push("CmdOrCtrl");
+      if (mac) {
+        if (e.metaKey || e.ctrlKey) mods.push("CmdOrCtrl");
+      } else {
+        if (e.ctrlKey) mods.push("CmdOrCtrl");
+        if (e.metaKey) mods.push("Super");
+      }
       if (e.shiftKey) mods.push("Shift");
       if (e.altKey) mods.push("Alt");
       if (["Control", "Meta", "Shift", "Alt"].includes(e.key)) return;

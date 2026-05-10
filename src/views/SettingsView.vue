@@ -195,7 +195,7 @@ export default defineComponent({
                 @change="setDefaultAction('copy_only')" />
               <div>
                 <div class="title">仅复制到剪贴板</div>
-                <div class="sub">不需要辅助功能权限；用户自行 ⌘V。</div>
+                <div class="sub">不需要辅助功能权限；用户自行 {{ isMacOS ? "⌘V" : "Ctrl+V" }}。</div>
               </div>
             </label>
           </div>
@@ -278,8 +278,11 @@ export default defineComponent({
               <div>
                 <div class="title">{{ isMacOS ? "macOS 辅助功能" : "键盘模拟权限" }}</div>
                 <div class="sub">
-                  注入功能需要此权限（AXIsProcessTrusted）。
-                  未授权时按 Enter 会回退仅复制。
+                  {{
+                    isMacOS
+                      ? "注入功能需要此权限（AXIsProcessTrusted）。未授权时按 Enter 会回退仅复制。"
+                      : "Windows 上注入通常无需额外授权；若目标窗口为管理员权限运行，本程序需以同等权限启动方可注入。"
+                  }}
                 </div>
               </div>
               <span class="spacer" />

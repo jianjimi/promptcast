@@ -1,6 +1,11 @@
-// commands/window.rs — 抽屉显隐 + 按需创建预览/编辑/设置窗口。
+// commands/window.rs — drawer 显隐 + 共享 editor/preview/settings 窗口的复用。
+//
+// 重要变更：之前用 `WebviewWindowBuilder::build()` 运行时建窗在 Windows
+// + Tauri 2.11 上会挂住（builder.build() 永不返回，子窗白屏）。改为
+// 在 tauri.conf.json 预声明所有窗口（initially visible:false），运行期
+// 只做 show/hide + 通过 webview.eval 切 hash 路由把 id 带入。
 use serde::Serialize;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
 
@@ -9,33 +14,34 @@ pub struct WindowInfo {
     pub label: String,
 }
 
-fn ensure_window(
+/// 把单例窗口拉到前面。可选地先把 hash 切换到 `target_hash`
+/// (例如 "#/editor/42")，让前端路由跳过去。
+fn show_singleton(
     app: &AppHandle,
     label: &str,
-    url: &str,
-    width: f64,
-    height: f64,
-    title: &str,
+    target_hash: Option<&str>,
 ) -> AppResult<WindowInfo> {
-    // 打开任何子窗口时先隐藏抽屉，避免它（floating level）盖住子窗口。
-    if let Some(drawer) = app.get_webview_window("drawer") {
-        let _ = drawer.hide();
+    let win = app
+        .get_webview_window(label)
+        .ok_or_else(|| AppError::NotFound(format!("window '{label}' not declared in tauri.conf")))?;
+
+    if let Some(hash) = target_hash {
+        // hash 用 JSON 字符串字面量转义，避免反斜杠 / 引号注入。
+        let escaped = serde_json::to_string(hash)
+            .map_err(|e| AppError::Internal(format!("escape hash: {e}")))?;
+        let js = format!(
+            "if (location.hash !== {0}) {{ location.hash = {0}; }}",
+            escaped
+        );
+        if let Err(e) = win.eval(&js) {
+            tracing::warn!(label, error = %e, "eval hash failed");
+        }
     }
-    if let Some(existing) = app.get_webview_window(label) {
-        let _ = existing.show();
-        let _ = existing.set_focus();
-        return Ok(WindowInfo {
-            label: label.to_string(),
-        });
-    }
-    WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .title(title)
-        .inner_size(width, height)
-        .resizable(true)
-        .center()
-        .build()
-        .map_err(|e| AppError::Internal(format!("create window {label}: {e}")))?;
-    tracing::info!(label, "sub-window created");
+
+    let _ = win.show();
+    let _ = win.unminimize();
+    let _ = win.set_focus();
+    tracing::info!(label, target_hash, "window shown");
     Ok(WindowInfo {
         label: label.to_string(),
     })
@@ -68,34 +74,21 @@ pub fn window_set_pin(app: AppHandle, pinned: bool) -> AppResult<()> {
 
 #[tauri::command]
 pub fn window_open_preview(app: AppHandle, id: i64) -> AppResult<WindowInfo> {
-    ensure_window(
-        &app,
-        &format!("preview-{id}"),
-        &format!("index.html#/preview/{id}"),
-        540.0,
-        640.0,
-        "预览 · Prompt Hub",
-    )
+    let hash = format!("#/preview/{id}");
+    show_singleton(&app, "preview", Some(&hash))
 }
 
 #[tauri::command]
 pub fn window_open_editor(app: AppHandle, id: Option<i64>) -> AppResult<WindowInfo> {
     tracing::info!(?id, "window_open_editor invoked");
-    let (label, route) = match id {
-        Some(i) => (format!("editor-{i}"), format!("index.html#/editor/{i}")),
-        None => ("editor-new".to_string(), "index.html#/editor".to_string()),
+    let hash = match id {
+        Some(i) => format!("#/editor/{i}"),
+        None => "#/editor".to_string(),
     };
-    ensure_window(&app, &label, &route, 600.0, 560.0, "编辑 · Prompt Hub")
+    show_singleton(&app, "editor", Some(&hash))
 }
 
 #[tauri::command]
 pub fn window_open_settings(app: AppHandle) -> AppResult<WindowInfo> {
-    ensure_window(
-        &app,
-        "settings",
-        "index.html#/settings",
-        680.0,
-        560.0,
-        "设置 · Prompt Hub",
-    )
+    show_singleton(&app, "settings", Some("#/settings"))
 }

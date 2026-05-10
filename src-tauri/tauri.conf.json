@@ -28,6 +28,36 @@
         "visible": true,
         "center": true,
         "shadow": false
+      },
+      {
+        "label": "editor",
+        "title": "编辑 · Prompt Hub",
+        "url": "index.html#/editor",
+        "width": 600,
+        "height": 560,
+        "resizable": true,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "preview",
+        "title": "预览 · Prompt Hub",
+        "url": "index.html#/preview",
+        "width": 540,
+        "height": 640,
+        "resizable": true,
+        "visible": false,
+        "center": true
+      },
+      {
+        "label": "settings",
+        "title": "设置 · Prompt Hub",
+        "url": "index.html#/settings",
+        "width": 680,
+        "height": 560,
+        "resizable": true,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {
