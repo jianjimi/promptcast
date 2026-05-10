@@ -1,30 +1,60 @@
-// platform/macos.rs — NSPanel 改造 + 跨应用焦点跟踪。
+// platform/macos.rs — macOS 平台层。
 //
-// 核心思路（Raycast 同款）：
-//   1. 抽屉是 NSPanel + nonactivatingPanel：显示时不会改变系统的 frontmost app
-//   2. 但在 show() 之后我们 **手动 makeKeyAndOrderFront** —— 这能让面板成为
-//      key window 接收键盘输入，但不会抢 frontmost。这样用户：
-//        • 抽屉里能用 ↑↓ Enter
-//        • 浏览器仍是 frontmost（关键！）
-//   3. 按下全局快捷键的瞬间，记住 NSWorkspace.frontmostApplication 的 PID
-//   4. inject 时：hide drawer → activate 那个 PID → sleep → 模拟 Cmd+V
-//
-//   这样即使中途用户用鼠标点了抽屉（这会让 NSApp 短暂激活），我们也能
-//   在注入前把目标应用拉回前台。
+// 思路修正（原来的 nonactivatingPanel 方案是错的）：
+//   - macOS 的键盘事件路由按"当前激活的 NSApp"分发。NSPanel + nonactivatingPanel
+//     虽然让面板成为 key window，但 NSApp 没激活时键盘事件依然去浏览器。
+//   - 正确做法（Raycast 同款）:
+//       1. 启动时设 NSApplicationActivationPolicyAccessory → 不显示 dock 图标
+//          但允许激活成 frontmost。
+//       2. 全局快捷键按下时：
+//          a) 用 NSWorkspace 记录当前 frontmost PID
+//          b) NSApp.activateIgnoringOtherApps:YES → 我们成为 frontmost
+//          c) drawer.makeKeyAndOrderFront → 键盘进抽屉
+//       3. 注入时：hide drawer → 用 NSRunningApplication 激活之前那个 PID →
+//          sleep → enigo 模拟 Cmd+V。
 use objc2::{class, msg_send};
 use objc2::runtime::AnyObject;
 use tauri::WebviewWindow;
 
 const NS_WINDOW_STYLE_MASK_BORDERLESS: u64 = 0;
 const NS_WINDOW_STYLE_MASK_RESIZABLE: u64 = 1 << 3;
-const NS_WINDOW_STYLE_MASK_NONACTIVATING_PANEL: u64 = 1 << 7;
 
 const NS_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
 const NS_COLLECTION_BEHAVIOR_FULLSCREEN_AUXILIARY: u64 = 1 << 8;
 
 const NS_FLOATING_WINDOW_LEVEL: i64 = 3;
 
+const NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY: i64 = 1;
 const NS_APPLICATION_ACTIVATE_IGNORING_OTHER_APPS: u64 = 1 << 1;
+
+/// 启动时调一次：NSApp 不显示 dock 图标，但仍可激活。
+pub fn set_accessory_policy() {
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        if app.is_null() {
+            tracing::warn!("NSApplication.sharedApplication is null");
+            return;
+        }
+        let ok: bool = msg_send![
+            app,
+            setActivationPolicy: NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY
+        ];
+        tracing::info!(ok, "NSApp setActivationPolicy(Accessory)");
+    }
+}
+
+/// 把我们自己的 NSApp 拉成 frontmost（键盘事件就会进我们的 key window）。
+pub fn activate_self() {
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        if app.is_null() { return; }
+        let _: () = msg_send![
+            app,
+            activateIgnoringOtherApps: true
+        ];
+        tracing::info!("NSApp activateIgnoringOtherApps");
+    }
+}
 
 pub fn apply_panel_style(window: &WebviewWindow) {
     let ns_window: *mut AnyObject = match window.ns_window() {
@@ -39,48 +69,57 @@ pub fn apply_panel_style(window: &WebviewWindow) {
         return;
     }
     unsafe {
-        let mask: u64 = NS_WINDOW_STYLE_MASK_BORDERLESS
-            | NS_WINDOW_STYLE_MASK_RESIZABLE
-            | NS_WINDOW_STYLE_MASK_NONACTIVATING_PANEL;
+        // 注意：不再用 nonactivatingPanel —— 那会让 NSApp 不激活，键盘事件
+        // 直接被路由到外部的浏览器。
+        let mask: u64 = NS_WINDOW_STYLE_MASK_BORDERLESS | NS_WINDOW_STYLE_MASK_RESIZABLE;
         let _: () = msg_send![ns_window, setStyleMask: mask];
+
         let behavior: u64 = NS_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES
             | NS_COLLECTION_BEHAVIOR_FULLSCREEN_AUXILIARY;
         let _: () = msg_send![ns_window, setCollectionBehavior: behavior];
+
         let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
         let _: () = msg_send![ns_window, setMovable: true];
         let _: () = msg_send![ns_window, setMovableByWindowBackground: true];
         let _: () = msg_send![ns_window, setLevel: NS_FLOATING_WINDOW_LEVEL];
     }
-    tracing::info!("macOS panel style applied to {}", window.label());
+    tracing::info!("macOS window style applied to {}", window.label());
 }
 
-/// 让面板成为 key window：键盘事件路由到它。
-/// 对 nonactivatingPanel 不会激活整个 NSApp。
 pub fn make_key_and_order_front(window: &WebviewWindow) {
     let ns_window: *mut AnyObject = match window.ns_window() {
         Ok(h) => h as *mut AnyObject,
-        Err(_) => return,
+        Err(e) => { tracing::warn!("ns_window err: {e}"); return; }
     };
     if ns_window.is_null() { return; }
     unsafe {
         let nil: *const AnyObject = std::ptr::null();
         let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
     }
+    tracing::info!("makeKeyAndOrderFront on {}", window.label());
 }
 
-/// 当前 frontmost app 的 PID（NSWorkspace.shared.frontmostApplication.processIdentifier）。
 pub fn frontmost_app_pid() -> Option<i32> {
     unsafe {
         let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
-        if workspace.is_null() { return None; }
+        if workspace.is_null() {
+            tracing::warn!("NSWorkspace.sharedWorkspace is null");
+            return None;
+        }
         let app: *mut AnyObject = msg_send![workspace, frontmostApplication];
-        if app.is_null() { return None; }
+        if app.is_null() {
+            tracing::warn!("frontmostApplication is null");
+            return None;
+        }
         let pid: i32 = msg_send![app, processIdentifier];
-        if pid <= 0 { None } else { Some(pid) }
+        if pid <= 0 {
+            tracing::warn!(pid, "frontmost pid <= 0");
+            return None;
+        }
+        Some(pid)
     }
 }
 
-/// 通过 PID 把某应用拉到前台。
 pub fn activate_app_by_pid(pid: i32) -> bool {
     unsafe {
         let app: *mut AnyObject = msg_send![
@@ -88,12 +127,12 @@ pub fn activate_app_by_pid(pid: i32) -> bool {
             runningApplicationWithProcessIdentifier: pid
         ];
         if app.is_null() {
-            tracing::warn!(pid, "runningApplicationWithProcessIdentifier returned nil");
+            tracing::warn!(pid, "NSRunningApplication for pid not found");
             return false;
         }
         let opts: u64 = NS_APPLICATION_ACTIVATE_IGNORING_OTHER_APPS;
         let activated: bool = msg_send![app, activateWithOptions: opts];
-        tracing::info!(pid, activated, "activate_app_by_pid");
+        tracing::info!(pid, activated, "activate_app_by_pid result");
         activated
     }
 }

@@ -27,9 +27,21 @@ export default defineComponent({
     },
   },
   methods: {
-    onStar(e: Event) { e.stopPropagation(); this.$emit("toggle-fav", this.prompt.id); },
-    onInject(e: Event) { e.stopPropagation(); this.$emit("inject", this.prompt.id); },
-    onEdit(e: Event) { e.stopPropagation(); this.$emit("edit", this.prompt.id); },
+    onStar(e: Event) {
+      e.stopPropagation();
+      console.log("[ListItem] star click id=", this.prompt.id);
+      this.$emit("toggle-fav", this.prompt.id);
+    },
+    onInject(e: Event) {
+      e.stopPropagation();
+      console.log("[ListItem] inject click id=", this.prompt.id);
+      this.$emit("inject", this.prompt.id);
+    },
+    onEdit(e: Event) {
+      e.stopPropagation();
+      console.log("[ListItem] edit click id=", this.prompt.id);
+      this.$emit("edit", this.prompt.id);
+    },
   },
 });
 </script>

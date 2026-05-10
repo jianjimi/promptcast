@@ -80,6 +80,7 @@ pub fn window_open_preview(app: AppHandle, id: i64) -> AppResult<WindowInfo> {
 
 #[tauri::command]
 pub fn window_open_editor(app: AppHandle, id: Option<i64>) -> AppResult<WindowInfo> {
+    tracing::info!(?id, "window_open_editor invoked");
     let (label, route) = match id {
         Some(i) => (format!("editor-{i}"), format!("index.html#/editor/{i}")),
         None => ("editor-new".to_string(), "index.html#/editor".to_string()),

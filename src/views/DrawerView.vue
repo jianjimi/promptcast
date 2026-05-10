@@ -149,19 +149,27 @@ export default defineComponent({
       this.prompts.select(list[next].id);
     },
     async injectSelected() {
+      log.info("injectSelected entry");
       const p = this.selectedPrompt;
-      if (!p) return;
-      log.info(`inject prompt id=${p.id}`);
+      if (!p) {
+        log.warn("injectSelected: nothing selected");
+        return;
+      }
+      log.info(`injectSelected id=${p.id} title=${p.title}`);
       if (this.settings.data.default_action === "copy_only") {
+        log.info("default_action=copy_only; falling through to copy");
         await this.copySelected();
         return;
       }
       try {
         const r = await injectPaste(p.content);
+        log.info(`injectPaste returned ok=${r.ok} fallback=${r.fallback} msg=${r.message}`);
         await this.prompts.recordUse(p.id);
-        if (!r.ok) this.ui.pushToast("注入失败 · 已复制到剪贴板", "warning");
+        if (!r.ok) {
+          this.ui.pushToast(r.message ?? "注入失败 · 已复制到剪贴板", "warning");
+        }
       } catch (e) {
-        log.error(`inject failed: ${e}`);
+        log.error(`injectSelected exception: ${e}`);
         this.ui.pushToast(`注入失败: ${e}`, "danger");
       }
     },
@@ -185,14 +193,21 @@ export default defineComponent({
       log.info("new prompt window opening");
       await windowOpenEditor(null);
     },
-    async toggleFav(id: number) { await this.prompts.toggleFavorite(id); },
+    async toggleFav(id: number) {
+      log.info(`toggleFav id=${id}`);
+      try { await this.prompts.toggleFavorite(id); }
+      catch (e) { log.error(`toggleFav failed: ${e}`); }
+    },
     async injectById(id: number) {
+      log.info(`injectById id=${id}`);
       this.prompts.select(id);
       await this.$nextTick();
       await this.injectSelected();
     },
     async editById(id: number) {
-      await windowOpenEditor(id);
+      log.info(`editById id=${id}`);
+      try { await windowOpenEditor(id); }
+      catch (e) { log.error(`editById failed: ${e}`); }
     },
     onKey(e: KeyboardEvent) {
       const cmd = e.metaKey || e.ctrlKey;

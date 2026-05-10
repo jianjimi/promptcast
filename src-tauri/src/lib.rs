@@ -36,6 +36,9 @@ pub fn run() {
             app.manage(LoggingGuard(guard));
             tracing::info!("Prompt Hub starting up");
 
+            // 隐藏 dock 图标但允许激活（必须先于窗口设置）
+            crate::platform::init_app_chrome();
+
             let db_path = app_data.join("prompt_hub.sqlite");
             let state = DbState::open(&db_path).expect("init db");
             app.manage(state);
@@ -138,31 +141,39 @@ fn register_global_hotkey(app: &tauri::AppHandle, shortcut: &str) {
             };
             let visible = drawer.is_visible().unwrap_or(false);
 
+            tracing::info!(visible, "hotkey pressed");
+
             if visible {
                 let _ = drawer.hide();
                 tracing::info!("hotkey: drawer hidden");
                 return;
             }
 
-            // 关键：在 show 之前记录当前 frontmost（一定不是我们自己，因为
-            // 我们还没 active）。这就是注入时要拉回的目标 app。
-            if let Some(pid) = crate::platform::frontmost_app_pid() {
-                if pid != our_pid {
+            // 1) 记录当前 frontmost（必须在我们激活之前 — 那时候我们的
+            //    PID 还不是 frontmost）。
+            match crate::platform::frontmost_app_pid() {
+                Some(pid) if pid != our_pid => {
                     if let Some(state) = app_clone.try_state::<LastFrontmost>() {
                         *state.0.lock() = Some(pid);
                         tracing::info!(target_pid = pid, "saved last frontmost pid");
                     }
-                } else {
-                    tracing::debug!(pid, "frontmost is self; not saving");
+                }
+                Some(pid) => {
+                    tracing::warn!(pid, "frontmost is self; keeping previous saved pid");
+                }
+                None => {
+                    tracing::warn!("no frontmost app detected");
                 }
             }
 
+            // 2) 把我们自己 NSApp 激活成 frontmost
+            //    —— 不激活的话 macOS 不会把键盘事件路由进我们的窗口
+            crate::platform::activate_self();
+
+            // 3) 显示窗口并让它成为 key window
             let _ = drawer.show();
-            // makeKeyAndOrderFront：让面板成为 key window 接收键盘
-            //（NSPanel + nonactivatingPanel 不会因此切换 frontmost app —
-            //  这就是它和普通 set_focus 的区别）。
             crate::platform::make_key(&drawer);
-            tracing::info!("hotkey: drawer shown + made key");
+            tracing::info!("hotkey: activated self + drawer shown + made key");
         });
     match res {
         Ok(_) => tracing::info!(shortcut, "global hotkey registered"),

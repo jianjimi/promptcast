@@ -15,6 +15,18 @@ pub fn apply_panel_style(_window: &WebviewWindow) {
     windows::apply(_window);
 }
 
+/// 启动期一次性调用：隐藏 dock 图标 / 启用 tool window 等。
+pub fn init_app_chrome() {
+    #[cfg(target_os = "macos")]
+    macos::set_accessory_policy();
+}
+
+/// 把我们自己拉到前台。
+pub fn activate_self() {
+    #[cfg(target_os = "macos")]
+    macos::activate_self();
+}
+
 /// 让窗口成为 key window 接收键盘事件。
 pub fn make_key(_window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
