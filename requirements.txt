@@ -1,0 +1,8 @@
+PyQt6>=6.7
+pynput>=1.7.7
+markdown-it-py>=3.0
+Pygments>=2.18
+requests>=2.32
+pywin32>=306; sys_platform == "win32"
+pyobjc-framework-Cocoa>=10.3; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10.3; sys_platform == "darwin"

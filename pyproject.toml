@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "promptcast"
+version = "0.2.0"
+description = "PromptCast — keyboard-driven prompt drawer (PyQt6)"
+requires-python = ">=3.11"
+authors = [{ name = "LXG" }]
+readme = "README.md"
+license = { text = "MIT" }
+dependencies = [
+    "PyQt6>=6.7",
+    "pynput>=1.7.7",
+    "markdown-it-py>=3.0",
+    "Pygments>=2.18",
+    "requests>=2.32",
+    "pywin32>=306; sys_platform == 'win32'",
+    "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyinstaller>=6.6"]
+
+[project.scripts]
+promptcast = "app.main:run"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

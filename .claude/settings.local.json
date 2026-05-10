@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rustc --version)",
+      "Bash(cargo --version)",
+      "Bash(rustup --version)",
+      "Bash(rustup show *)",
+      "Bash(rustup target *)",
+      "Bash(where link.exe)",
+      "Bash(where cl.exe)",
+      "Bash(pnpm --version)",
+      "Bash(reg query *)",
+      "Read(//c/Program Files \\(x86\\)/Microsoft Visual Studio/**)",
+      "Read(//c/Program Files/Microsoft Visual Studio/**)",
+      "Read(//c//**)",
+      "Bash(cmd //c \"echo %PATH%\")",
+      "Bash(cmd //c \"where rustc\")",
+      "Bash(cmd //c \"reg query \\\\\"HKCU\\\\Software\\\\Microsoft\\\\Command Processor\\\\\" /v AutoRun\")",
+      "Bash(powershell -NoProfile -Command '[Environment]::GetEnvironmentVariable\\('\\\\''Path'\\\\'','\\\\''User'\\\\''\\) | Out-File -Encoding utf8 $env:USERPROFILE\\\\path_user_backup.txt; Write-Host done')"
+    ]
+  }
+}

@@ -1,0 +1,309 @@
+/* Base QSS template — fields filled by tokens.palette(theme).
+   Use double braces {{ }} to emit a literal brace. */
+
+* {{
+    font-family: {font_sans};
+    font-size: {fs_13}px;
+    color: {text_primary};
+    outline: 0;
+}}
+
+QWidget#DrawerRoot {{
+    background: transparent;
+}}
+
+QFrame#DrawerCard {{
+    background-color: {bg_surface};
+    border: 1px solid {border};
+    border-radius: {radius_xl}px;
+}}
+
+QFrame#PromptCard {{
+    background-color: {bg_surface};
+    border: 1px solid {border};
+    border-radius: {radius_lg}px;
+}}
+
+QLabel {{
+    color: {text_primary};
+    background: transparent;
+}}
+
+QLabel[role="muted"] {{
+    color: {text_secondary};
+}}
+
+QLabel[role="hint"] {{
+    color: {text_tertiary};
+    font-size: {fs_11}px;
+}}
+
+QLabel[role="title"] {{
+    color: {text_primary};
+    font-size: {fs_14}px;
+    font-weight: {fw_semibold};
+}}
+
+QLabel[role="section"] {{
+    color: {text_secondary};
+    font-size: {fs_11}px;
+    font-weight: {fw_medium};
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+
+QLineEdit, QPlainTextEdit, QTextEdit {{
+    background-color: {bg_input};
+    border: 1px solid {border};
+    border-radius: {radius_md}px;
+    padding: {space_4}px {space_6}px;
+    selection-background-color: {accent};
+    selection-color: {accent_fg};
+}}
+
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {{
+    border-color: {border_strong};
+}}
+
+QLineEdit:disabled, QPlainTextEdit:disabled {{
+    background-color: {bg_input_disabled};
+    color: {text_tertiary};
+}}
+
+QLineEdit#SearchInput {{
+    background-color: {bg_input};
+    border: 1px solid {border};
+    border-radius: {radius_pill}px;
+    padding: {space_5}px {space_8}px {space_5}px {space_10}px;
+    font-size: {fs_13}px;
+}}
+
+QPushButton {{
+    background-color: {bg_surface};
+    color: {text_primary};
+    border: 1px solid {border};
+    border-radius: {radius_md}px;
+    padding: {space_4}px {space_8}px;
+    font-weight: {fw_medium};
+}}
+
+QPushButton:hover {{
+    background-color: {bg_hover};
+}}
+
+QPushButton:pressed {{
+    background-color: {accent_soft};
+}}
+
+QPushButton:disabled {{
+    color: {text_tertiary};
+    border-color: {border};
+}}
+
+QPushButton[role="primary"] {{
+    background-color: {accent};
+    color: {accent_fg};
+    border-color: {accent};
+}}
+
+QPushButton[role="primary"]:hover {{
+    background-color: {accent};
+}}
+
+QPushButton[role="ghost"] {{
+    background: transparent;
+    border: 1px solid transparent;
+    color: {text_secondary};
+    padding: {space_3}px {space_5}px;
+}}
+
+QPushButton[role="ghost"]:hover {{
+    background-color: {bg_hover};
+    color: {text_primary};
+}}
+
+QPushButton[role="chip"] {{
+    background-color: transparent;
+    border: 1px solid {border};
+    border-radius: {radius_pill}px;
+    color: {text_secondary};
+    padding: {space_2}px {space_8}px;
+    font-size: {fs_12}px;
+}}
+
+QPushButton[role="chip"]:hover {{
+    background-color: {bg_hover};
+    color: {text_primary};
+}}
+
+QPushButton[role="chip"][selected="true"] {{
+    background-color: {accent};
+    color: {accent_fg};
+    border-color: {accent};
+}}
+
+QListView, QListWidget, QTreeView {{
+    background-color: transparent;
+    border: none;
+    outline: 0;
+    show-decoration-selected: 1;
+}}
+
+QListView::item, QListWidget::item {{
+    background-color: transparent;
+    color: {text_primary};
+    border-radius: {radius_md}px;
+    padding: {space_4}px {space_6}px;
+}}
+
+QListView::item:hover, QListWidget::item:hover {{
+    background-color: {bg_hover};
+}}
+
+QListView::item:selected, QListWidget::item:selected {{
+    background-color: {bg_selected};
+    color: {text_primary};
+}}
+
+QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 0;
+}}
+
+QScrollBar::handle:vertical {{
+    background: {scrollbar_thumb};
+    border-radius: 4px;
+    min-height: 24px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: {scrollbar_thumb_hover};
+}}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
+    margin: 0;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: {scrollbar_thumb};
+    border-radius: 4px;
+    min-width: 24px;
+}}
+
+QScrollBar::handle:horizontal:hover {{
+    background: {scrollbar_thumb_hover};
+}}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0;
+}}
+
+QFrame[role="separator"] {{
+    background-color: {border};
+    max-height: 1px;
+    min-height: 1px;
+    border: none;
+}}
+
+QToolTip {{
+    background-color: {bg_surface};
+    color: {text_primary};
+    border: 1px solid {border};
+    padding: {space_3}px {space_5}px;
+    border-radius: {radius_sm}px;
+}}
+
+QFrame#HintBar {{
+    background-color: {bg_base};
+    border-top: 1px solid {border};
+}}
+
+QLabel#HintBarLabel {{
+    color: {text_tertiary};
+    font-family: {font_mono};
+    font-size: {fs_11}px;
+}}
+
+QFrame#ToastFrame {{
+    background-color: {bg_surface};
+    border: 1px solid {border_strong};
+    border-radius: {radius_md}px;
+}}
+
+QTabWidget::pane {{
+    border: none;
+    background: transparent;
+}}
+
+QTabBar::tab {{
+    background: transparent;
+    color: {text_secondary};
+    padding: {space_4}px {space_8}px;
+    border: none;
+    border-bottom: 2px solid transparent;
+}}
+
+QTabBar::tab:selected {{
+    color: {text_primary};
+    border-bottom-color: {accent};
+}}
+
+QListWidget#SettingsNav {{
+    background-color: {bg_base};
+    border-right: 1px solid {border};
+    padding: {space_4}px;
+}}
+
+QListWidget#SettingsNav::item {{
+    padding: {space_5}px {space_8}px;
+    border-radius: {radius_md}px;
+    color: {text_secondary};
+}}
+
+QListWidget#SettingsNav::item:selected {{
+    background-color: {accent_soft};
+    color: {text_primary};
+    font-weight: {fw_medium};
+}}
+
+QComboBox {{
+    background-color: {bg_input};
+    border: 1px solid {border};
+    border-radius: {radius_md}px;
+    padding: {space_3}px {space_6}px;
+    min-height: 22px;
+}}
+
+QComboBox:hover {{
+    border-color: {border_strong};
+}}
+
+QComboBox QAbstractItemView {{
+    background-color: {bg_surface};
+    border: 1px solid {border};
+    border-radius: {radius_md}px;
+    selection-background-color: {bg_selected};
+    selection-color: {text_primary};
+    padding: {space_2}px;
+}}
+
+QCheckBox, QRadioButton {{
+    color: {text_primary};
+    spacing: {space_4}px;
+}}
+
+QCheckBox::indicator, QRadioButton::indicator {{
+    width: 14px;
+    height: 14px;
+}}
