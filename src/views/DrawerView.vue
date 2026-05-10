@@ -193,6 +193,10 @@ export default defineComponent({
       log.info("new prompt window opening");
       await windowOpenEditor(null);
     },
+    onSelect(id: number) {
+      log.info(`[DrawerView] onSelect id=${id}`);
+      this.prompts.select(id);
+    },
     async toggleFav(id: number) {
       log.info(`toggleFav id=${id}`);
       try { await this.prompts.toggleFavorite(id); }
@@ -253,7 +257,7 @@ export default defineComponent({
     <PromptList
       :prompts="searched"
       :selected-id="prompts.selectedId"
-      @select="(id: number) => prompts.select(id)"
+      @select="onSelect"
       @toggle-fav="toggleFav"
       @inject="injectById"
       @edit="editById"

@@ -1,12 +1,13 @@
 <!--
-  PromptListItem.vue — 列表项；hover 显示「注入 / 编辑 / 收藏」。
-  单击行 = 选中（不注入）；hover 上的紫色注入图标 = 直接注入这条。
+  PromptListItem.vue — hover 显示「编辑 / 注入 / 收藏」。
+  click 整行 = 选中；click 注入图标 = 直接注入。
 -->
 <script lang="ts">
 import { defineComponent, type PropType } from "vue";
 import { Star, ArrowRight, Pencil, Pin } from "lucide-vue-next";
 import type { Prompt } from "../../types/prompt";
 import { snippet } from "../../utils/format";
+import { log } from "../../utils/logger";
 
 export default defineComponent({
   name: "PromptListItem",
@@ -22,24 +23,26 @@ export default defineComponent({
     edit: (_id: number) => true,
   },
   computed: {
-    preview(): string {
-      return snippet(this.prompt.content, 90);
-    },
+    preview(): string { return snippet(this.prompt.content, 90); },
   },
   methods: {
+    onRowClick() {
+      log.info(`[ListItem] row click id=${this.prompt.id}`);
+      this.$emit("click", this.prompt.id);
+    },
     onStar(e: Event) {
       e.stopPropagation();
-      console.log("[ListItem] star click id=", this.prompt.id);
+      log.info(`[ListItem] star click id=${this.prompt.id}`);
       this.$emit("toggle-fav", this.prompt.id);
     },
     onInject(e: Event) {
       e.stopPropagation();
-      console.log("[ListItem] inject click id=", this.prompt.id);
+      log.info(`[ListItem] inject click id=${this.prompt.id}`);
       this.$emit("inject", this.prompt.id);
     },
     onEdit(e: Event) {
       e.stopPropagation();
-      console.log("[ListItem] edit click id=", this.prompt.id);
+      log.info(`[ListItem] edit click id=${this.prompt.id}`);
       this.$emit("edit", this.prompt.id);
     },
   },
@@ -47,7 +50,7 @@ export default defineComponent({
 </script>
 
 <template>
-  <div class="item" :class="{ selected }" @click="$emit('click', prompt.id)">
+  <div class="item" :class="{ selected }" @click="onRowClick">
     <div class="main">
       <div class="title-row">
         <Pin v-if="prompt.is_pinned" :size="11" class="pin" />
@@ -58,6 +61,7 @@ export default defineComponent({
 
     <div class="actions">
       <button
+        type="button"
         class="ico-btn star-btn"
         :class="{ on: prompt.is_favorite }"
         @click="onStar"
@@ -65,10 +69,16 @@ export default defineComponent({
       >
         <Star :size="14" :fill="prompt.is_favorite ? 'currentColor' : 'none'" />
       </button>
-      <button class="ico-btn hover-only" @click="onEdit" title="编辑 (⌘E)">
+      <button
+        type="button"
+        class="ico-btn hover-only"
+        @click="onEdit"
+        title="编辑 (⌘E)"
+      >
         <Pencil :size="14" />
       </button>
       <button
+        type="button"
         class="ico-btn inject-btn hover-only"
         @click="onInject"
         title="注入到上一个输入框 (Enter)"
@@ -132,6 +142,11 @@ export default defineComponent({
               background var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out);
 }
+/* 关键：让 svg 不接收点击，所有点击都直接落在 button 上。
+   否则 webview 在某些场景里把 e.target 锁定到 svg/path，
+   button 的 @click bubble 链路被打断。 */
+.ico-btn svg, .ico-btn svg * { pointer-events: none; }
+
 .ico-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
 .star-btn.on { color: var(--star); }
 .inject-btn:hover {

@@ -3,6 +3,7 @@
 import { defineComponent, type PropType } from "vue";
 import PromptListItem from "./PromptListItem.vue";
 import type { Prompt } from "../../types/prompt";
+import { log } from "../../utils/logger";
 
 export default defineComponent({
   name: "PromptList",
@@ -19,12 +20,8 @@ export default defineComponent({
     "new-prompt": () => true,
   },
   computed: {
-    pinned(): Prompt[] {
-      return this.prompts.filter((p) => p.is_pinned);
-    },
-    rest(): Prompt[] {
-      return this.prompts.filter((p) => !p.is_pinned);
-    },
+    pinned(): Prompt[] { return this.prompts.filter((p) => p.is_pinned); },
+    rest(): Prompt[] { return this.prompts.filter((p) => !p.is_pinned); },
   },
   watch: {
     selectedId(id: number | null) {
@@ -33,6 +30,28 @@ export default defineComponent({
         const el = this.$el?.querySelector?.(`[data-id="${id}"]`) as HTMLElement | null;
         el?.scrollIntoView({ block: "nearest" });
       });
+    },
+  },
+  methods: {
+    fwdSelect(id: number) {
+      log.info(`[PromptList] fwd select id=${id}`);
+      this.$emit("select", id);
+    },
+    fwdInject(id: number) {
+      log.info(`[PromptList] fwd inject id=${id}`);
+      this.$emit("inject", id);
+    },
+    fwdEdit(id: number) {
+      log.info(`[PromptList] fwd edit id=${id}`);
+      this.$emit("edit", id);
+    },
+    fwdFav(id: number) {
+      log.info(`[PromptList] fwd toggle-fav id=${id}`);
+      this.$emit("toggle-fav", id);
+    },
+    fwdNew() {
+      log.info(`[PromptList] fwd new-prompt`);
+      this.$emit("new-prompt");
     },
   },
 });
@@ -46,10 +65,10 @@ export default defineComponent({
         <PromptListItem
           :prompt="p"
           :selected="p.id === selectedId"
-          @click="$emit('select', p.id)"
-          @toggle-fav="$emit('toggle-fav', p.id)"
-          @inject="$emit('inject', p.id)"
-          @edit="$emit('edit', p.id)"
+          @click="fwdSelect"
+          @toggle-fav="fwdFav"
+          @inject="fwdInject"
+          @edit="fwdEdit"
         />
       </div>
     </template>
@@ -58,13 +77,15 @@ export default defineComponent({
       <PromptListItem
         :prompt="p"
         :selected="p.id === selectedId"
-        @click="$emit('select', p.id)"
-        @toggle-fav="$emit('toggle-fav', p.id)"
+        @click="fwdSelect"
+        @toggle-fav="fwdFav"
+        @inject="fwdInject"
+        @edit="fwdEdit"
       />
     </div>
     <div v-if="!prompts.length" class="empty">
       <p>没有匹配的提示词</p>
-      <button class="empty-cta" @click="$emit('new-prompt')">+ 新建提示词</button>
+      <button class="empty-cta" @click="fwdNew">+ 新建提示词</button>
       <p class="hint">或按 ⌘N</p>
     </div>
   </div>
