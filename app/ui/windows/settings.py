@@ -1,6 +1,8 @@
 """Settings window with left-nav + page stack."""
 from __future__ import annotations
 
+import sys
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -48,6 +50,8 @@ class SettingsWindow(QWidget):
         self._add_page("文件夹", self._build_folders())
         self._add_page("站点", self._build_sites())
         self._add_page("数据", self._build_data())
+        if sys.platform == "darwin":
+            self._add_page("权限", self._build_permissions())
         self._add_page("关于", self._build_about())
 
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -148,6 +152,46 @@ class SettingsWindow(QWidget):
         panel = DataPanel()
         panel.changed.connect(self.dataChanged)
         return panel
+
+    def _build_permissions(self) -> QWidget:
+        from app.platform import get_platform
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setSpacing(10)
+        layout.addWidget(QLabel("<b>macOS 辅助功能权限</b>"))
+        layout.addWidget(
+            QLabel(
+                "PromptCast 需要辅助功能权限才能在你按 Enter 时把内容粘贴到目标 App。"
+                "未授权时会自动降级为「仅复制到剪贴板」。"
+            )
+        )
+        status_label = QLabel("正在检查…")
+        layout.addWidget(status_label)
+
+        def refresh() -> None:
+            try:
+                trusted = get_platform().check_accessibility()
+            except Exception as exc:
+                status_label.setText(f"无法检查权限: {exc}")
+                return
+            status_label.setText(
+                "✅ 已授权" if trusted else "❌ 未授权（注入会降级为复制）"
+            )
+
+        refresh_btn = QPushButton("重新检查")
+        refresh_btn.clicked.connect(refresh)
+        request_btn = QPushButton("打开系统设置申请权限")
+        request_btn.setProperty("role", "primary")
+        request_btn.clicked.connect(lambda: get_platform().request_accessibility())
+
+        row = QHBoxLayout()
+        row.addWidget(request_btn)
+        row.addWidget(refresh_btn)
+        row.addStretch(1)
+        layout.addLayout(row)
+        layout.addStretch(1)
+        refresh()
+        return w
 
     def _build_about(self) -> QWidget:
         w = QWidget()

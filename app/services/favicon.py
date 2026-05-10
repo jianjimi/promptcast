@@ -11,26 +11,35 @@ from app.db.repositories import sites as sites_repo
 
 log = logging.getLogger(__name__)
 
+# Hold strong references so the QObject-derived `_Signals` survives until emit().
+_INFLIGHT: set["_Signals"] = set()
+
 
 class _Signals(QObject):
     done = pyqtSignal(int, bool)  # site_id, ok
 
 
 class _FetchTask(QRunnable):
-    def __init__(self, site_id: int, url: str) -> None:
+    def __init__(self, site_id: int, url: str, signals: _Signals) -> None:
         super().__init__()
         self.site_id = site_id
         self.url = url
-        self.signals = _Signals()
+        self.signals = signals
 
     def run(self) -> None:
+        ok = False
         try:
             blob, mime = _fetch_blob(self.url)
             sites_repo.set_favicon(self.site_id, blob, mime)
-            self.signals.done.emit(self.site_id, True)
+            ok = True
         except Exception as exc:
             log.warning("favicon fetch failed for %s: %s", self.url, exc)
-            self.signals.done.emit(self.site_id, False)
+        finally:
+            try:
+                self.signals.done.emit(self.site_id, ok)
+            except RuntimeError:
+                pass
+            _INFLIGHT.discard(self.signals)
 
 
 def _fetch_blob(url: str) -> tuple[bytes, str]:
@@ -57,7 +66,9 @@ def _fetch_blob(url: str) -> tuple[bytes, str]:
 
 
 def fetch_async(site_id: int, url: str, *, on_done: Callable[[], None] | None = None) -> None:
-    task = _FetchTask(site_id, url)
+    signals = _Signals()
+    _INFLIGHT.add(signals)
     if on_done is not None:
-        task.signals.done.connect(lambda _sid, _ok: on_done())
+        signals.done.connect(lambda _sid, _ok: on_done())
+    task = _FetchTask(site_id, url, signals)
     QThreadPool.globalInstance().start(task)

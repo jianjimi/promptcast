@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtGui import QColor, QGuiApplication, QPalette
 from PyQt6.QtWidgets import QApplication
 
 from app.config import STYLES_DIR
@@ -29,6 +29,33 @@ def _resolve_theme(choice: str) -> str:
 def render_qss(theme: str) -> str:
     template = _BASE_QSS_PATH.read_text(encoding="utf-8")
     return template.format(**palette(theme))
+
+
+def _make_palette(theme: str) -> QPalette:
+    """Build a QPalette so framework-drawn controls (tooltips, native dialogs,
+    QFormLayout buddy labels) pick up the right colors instead of system defaults."""
+    p = palette(theme)
+    pal = QPalette()
+    text = QColor(p["text_primary"])
+    secondary = QColor(p["text_secondary"])
+    base = QColor(p["bg_surface"])
+    window = QColor(p["bg_base"])
+    accent = QColor(p["accent"])
+    accent_fg = QColor(p["accent_fg"])
+
+    pal.setColor(QPalette.ColorRole.Window, window)
+    pal.setColor(QPalette.ColorRole.WindowText, text)
+    pal.setColor(QPalette.ColorRole.Base, base)
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor(p["bg_hover"]))
+    pal.setColor(QPalette.ColorRole.Text, text)
+    pal.setColor(QPalette.ColorRole.Button, base)
+    pal.setColor(QPalette.ColorRole.ButtonText, text)
+    pal.setColor(QPalette.ColorRole.Highlight, accent)
+    pal.setColor(QPalette.ColorRole.HighlightedText, accent_fg)
+    pal.setColor(QPalette.ColorRole.PlaceholderText, secondary)
+    pal.setColor(QPalette.ColorRole.ToolTipBase, base)
+    pal.setColor(QPalette.ColorRole.ToolTipText, text)
+    return pal
 
 
 class ThemeManager(QObject):
@@ -56,6 +83,7 @@ class ThemeManager(QObject):
         qss = render_qss(resolved)
         app = QApplication.instance()
         if app is not None:
+            app.setPalette(_make_palette(resolved))
             app.setStyleSheet(qss)
         log.info("theme applied: %s (resolved=%s)", choice, resolved)
         self.themeChanged.emit(resolved)

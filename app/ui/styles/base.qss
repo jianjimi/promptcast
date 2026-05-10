@@ -42,6 +42,8 @@ QLabel[role="title"] {{
     color: {text_primary};
     font-size: {fs_14}px;
     font-weight: {fw_semibold};
+    min-height: 22px;
+    padding: 1px 0;
 }}
 
 QLabel[role="section"] {{
@@ -301,6 +303,13 @@ QComboBox QAbstractItemView {{
 QCheckBox, QRadioButton {{
     color: {text_primary};
     spacing: {space_4}px;
+}}
+
+/* Form labels (QFormLayout buddies). Default Qt palette for "buddy" labels in
+   dark mode is too dim — force explicit primary color. */
+QFormLayout QLabel,
+QLabel[buddy="true"] {{
+    color: {text_primary};
 }}
 
 QCheckBox::indicator, QRadioButton::indicator {{

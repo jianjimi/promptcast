@@ -27,6 +27,7 @@ class PreviewWindow(QWidget):
 
         self.title_label = QLabel("")
         self.title_label.setProperty("role", "title")
+        self.title_label.setStyleSheet("font-size: 16px; font-weight: 600;")
 
         self.view = MarkdownView()
 

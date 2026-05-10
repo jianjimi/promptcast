@@ -7,7 +7,11 @@ from typing import Optional
 from PyQt6.QtCore import QObject, QUrl
 from PyQt6.QtGui import QDesktopServices
 
-from app.db.repositories import settings as settings_repo, sites as sites_repo
+from app.db.repositories import (
+    prompts as prompts_repo,
+    settings as settings_repo,
+    sites as sites_repo,
+)
 from app.platform import ForegroundRef, get_platform
 from app.services import theme as theme_service
 from app.services.hotkey import service as hotkey_service
@@ -34,6 +38,12 @@ class AppController(QObject):
         self._wire_hotkey()
         inject_service().message.connect(self.drawer.show_toast)
         self.drawer.set_pinned(bool(settings_repo.get("pin_default", False)))
+        sort_value = settings_repo.get("sort_mode", "recent_used")
+        from app.models import SortMode
+        try:
+            self.drawer.set_sort_mode(SortMode(sort_value))
+        except ValueError:
+            pass
         self.drawer.reload()
 
     # ---- public ----------------------------------------------------------------
@@ -52,6 +62,12 @@ class AppController(QObject):
         self.drawer.requestOpenSite.connect(self._on_open_site)
         self.drawer.requestAddSite.connect(self.open_settings_to_sites)
         self.drawer.requestHide.connect(self._hide_drawer)
+        self.drawer.requestSettings.connect(self.open_settings)
+        self.drawer.requestDuplicate.connect(self._on_duplicate)
+        self.drawer.requestDelete.connect(self._on_delete)
+        self.drawer.requestTogglePin.connect(self._on_toggle_pin)
+        self.drawer.pinChanged.connect(lambda v: settings_repo.set_value("pin_default", v))
+        self.drawer.sortChanged.connect(lambda m: settings_repo.set_value("sort_mode", m.value))
 
     def _wire_hotkey(self) -> None:
         svc = hotkey_service()
@@ -84,6 +100,33 @@ class AppController(QObject):
         inject_service().copy_only(prompt_id)
         self._hide_drawer()
 
+    def _on_duplicate(self, prompt_id: int) -> None:
+        src = prompts_repo.get(prompt_id)
+        if src is None:
+            return
+        prompts_repo.create(
+            title=f"{src.title} (副本)",
+            content=src.content,
+            folder_id=src.folder_id,
+            tag_ids=src.tag_ids,
+        )
+        self.drawer.reload()
+        self.drawer.show_toast("已复制为新条目", "success")
+
+    def _on_delete(self, prompt_id: int) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        if QMessageBox.question(
+            self.drawer, "删除 Prompt", "确定删除？此操作不可撤销。"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        prompts_repo.delete(prompt_id)
+        self.drawer.reload()
+        self.drawer.show_toast("已删除", "warning")
+
+    def _on_toggle_pin(self, prompt_id: int) -> None:
+        prompts_repo.toggle_pin(prompt_id)
+        self.drawer.reload()
+
     def _on_open_site(self, site_id: int) -> None:
         site = sites_repo.get(site_id)
         if site is None:
@@ -96,6 +139,7 @@ class AppController(QObject):
         if self.editor is None:
             self.editor = EditorWindow()
             self.editor.saved.connect(lambda _id: self.drawer.reload())
+            self.editor.deleted.connect(lambda _id: self.drawer.reload())
         self.editor.open_for_id(prompt_id)
 
     def open_preview(self, prompt_id: int) -> None:

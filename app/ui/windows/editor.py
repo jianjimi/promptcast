@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -19,12 +20,13 @@ from app.models import Prompt
 
 
 class EditorWindow(QWidget):
-    saved = pyqtSignal(int)  # prompt id
+    saved = pyqtSignal(int)
+    deleted = pyqtSignal(int)
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("PromptCast — Editor")
-        self.resize(640, 600)
+        self.resize(720, 640)
         self._editing_id: int | None = None
 
         self.title_input = QLineEdit()
@@ -36,35 +38,54 @@ class EditorWindow(QWidget):
 
         self.content_input = QPlainTextEdit()
         self.content_input.setPlaceholderText("Markdown 内容…")
+        mono = QFont()
+        mono.setFamily("JetBrains Mono")
+        mono.setStyleHint(QFont.StyleHint.TypeWriter)
+        mono.setPointSize(11)
+        self.content_input.setFont(mono)
+        self.content_input.setTabChangesFocus(False)
 
-        save_btn = QPushButton("保存")
-        save_btn.setProperty("role", "primary")
-        save_btn.clicked.connect(self._on_save)
+        self.save_btn = QPushButton("保存  (Ctrl+S)")
+        self.save_btn.setProperty("role", "primary")
+        self.save_btn.clicked.connect(self._on_save)
 
-        cancel_btn = QPushButton("取消")
-        cancel_btn.clicked.connect(self.close)
+        self.cancel_btn = QPushButton("取消  (Esc)")
+        self.cancel_btn.clicked.connect(self.close)
+
+        self.delete_btn = QPushButton("删除")
+        self.delete_btn.setProperty("role", "ghost")
+        self.delete_btn.clicked.connect(self._on_delete)
 
         meta_row = QHBoxLayout()
-        meta_row.addWidget(QLabel("文件夹"))
+        meta_row.setSpacing(10)
+        f_label = QLabel("文件夹")
+        f_label.setMinimumWidth(48)
+        t_label = QLabel("标签")
+        t_label.setMinimumWidth(36)
+        meta_row.addWidget(f_label)
         meta_row.addWidget(self.folder_combo, 1)
-        meta_row.addSpacing(12)
-        meta_row.addWidget(QLabel("标签"))
+        meta_row.addSpacing(8)
+        meta_row.addWidget(t_label)
         meta_row.addWidget(self.tags_input, 2)
 
         actions = QHBoxLayout()
+        actions.addWidget(self.delete_btn)
         actions.addStretch(1)
-        actions.addWidget(cancel_btn)
-        actions.addWidget(save_btn)
+        actions.addWidget(self.cancel_btn)
+        actions.addWidget(self.save_btn)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(10)
         layout.addWidget(self.title_input)
         layout.addLayout(meta_row)
         layout.addWidget(self.content_input, 1)
         layout.addLayout(actions)
 
-    # ---- public API ----------------------------------------------------------------
+        QShortcut(QKeySequence("Ctrl+S"), self, activated=self._on_save)
+        QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._on_save)
+        QShortcut(QKeySequence("Esc"), self, activated=self.close)
+
     def open_for_id(self, prompt_id: int | None) -> None:
         self._editing_id = prompt_id
         self._reload_folders()
@@ -73,6 +94,7 @@ class EditorWindow(QWidget):
             self.title_input.clear()
             self.content_input.clear()
             self.folder_combo.setCurrentIndex(0)
+            self.delete_btn.hide()
             self.setWindowTitle("PromptCast — 新建 Prompt")
         else:
             p = prompts_repo.get(prompt_id)
@@ -83,13 +105,13 @@ class EditorWindow(QWidget):
             self.title_input.setText(p.title)
             self.content_input.setPlainText(p.content)
             self._select_folder(p.folder_id)
+            self.delete_btn.show()
             self.setWindowTitle(f"PromptCast — 编辑 «{p.title}»")
         self.show()
         self.raise_()
         self.activateWindow()
         self.title_input.setFocus()
 
-    # ---- internals -----------------------------------------------------------------
     def _reload_folders(self) -> None:
         self.folder_combo.clear()
         self.folder_combo.addItem("（无文件夹）", None)
@@ -140,4 +162,16 @@ class EditorWindow(QWidget):
                 tag_ids=tag_ids,
             )
             self.saved.emit(self._editing_id)
+        self.close()
+
+    def _on_delete(self) -> None:
+        if self._editing_id is None:
+            return
+        if QMessageBox.question(
+            self, "删除 Prompt", "确定删除？此操作不可撤销。"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        pid = self._editing_id
+        prompts_repo.delete(pid)
+        self.deleted.emit(pid)
         self.close()

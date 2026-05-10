@@ -4,17 +4,21 @@ from __future__ import annotations
 import logging
 from typing import Callable
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QGuiApplication, QKeyEvent, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QFrame,
     QGraphicsDropShadowEffect,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from app.db.repositories import folders, prompts as prompts_repo, sites as sites_repo, tags
 from app.models import Prompt, SortMode
+from app.services.search import fuzzy_filter
+from app.ui.widgets.drawer_header import DrawerHeader
+from app.ui.widgets.empty_state import EmptyState
 from app.ui.widgets.filter_chips import ChipSpec, FilterChips
 from app.ui.widgets.hint_bar import HintBar
 from app.ui.widgets.prompt_list import PromptList
@@ -40,6 +44,12 @@ class DrawerWindow(QWidget):
     requestOpenSite = pyqtSignal(int)
     requestAddSite = pyqtSignal()
     requestHide = pyqtSignal()
+    requestSettings = pyqtSignal()
+    pinChanged = pyqtSignal(bool)
+    sortChanged = pyqtSignal(object)
+    requestDuplicate = pyqtSignal(int)
+    requestDelete = pyqtSignal(int)
+    requestTogglePin = pyqtSignal(int)
 
     def __init__(self) -> None:
         super().__init__(
@@ -81,10 +91,12 @@ class DrawerWindow(QWidget):
 
     def set_pinned(self, value: bool) -> None:
         self._pinned = value
+        self._header.set_pinned(value)
 
     def set_sort_mode(self, mode: SortMode) -> None:
         if mode != self._sort_mode:
             self._sort_mode = mode
+            self._header.set_sort_mode(mode)
             self.reload()
 
     def show_toast(self, message: str, level: str = "info") -> None:
@@ -111,19 +123,34 @@ class DrawerWindow(QWidget):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
 
+        self._header = DrawerHeader(card)
         self._search = SearchBar(card)
         self._chips = FilterChips(card)
         self._list = PromptList(card)
+        self._empty = EmptyState(card)
+
+        self._stack = QStackedWidget(card)
+        self._stack.addWidget(self._list)
+        self._stack.addWidget(self._empty)
+
         self._sites = SiteLauncher(card)
         self._hint = HintBar(card)
 
+        col.addWidget(self._header)
         col.addWidget(self._search)
         col.addWidget(self._chips)
-        col.addWidget(self._list, 1)
+        col.addWidget(self._stack, 1)
         col.addWidget(self._sites)
         col.addWidget(self._hint)
 
         self._toast = Toast(card)
+
+        # signals
+        self._header.pinToggled.connect(self._on_pin_toggled)
+        self._header.sortChanged.connect(self._on_sort_changed)
+        self._header.newRequested.connect(self.requestNew)
+        self._header.settingsRequested.connect(self.requestSettings)
+        self._header.dragMoved.connect(self._on_drag_moved)
 
         self._search.textChanged.connect(self._on_query)
         self._search.submitted.connect(self._emit_inject)
@@ -131,9 +158,14 @@ class DrawerWindow(QWidget):
         self._list.selected.connect(self._on_select)
         self._list.activated.connect(self.requestInject)
         self._list.favoriteToggled.connect(self._toggle_fav)
+        self._list.pinToggled.connect(self.requestTogglePin)
         self._list.edited.connect(self.requestEdit)
+        self._list.copied.connect(self.requestCopy)
+        self._list.duplicated.connect(self.requestDuplicate)
+        self._list.deleted.connect(self.requestDelete)
         self._sites.siteClicked.connect(self.requestOpenSite)
         self._sites.addRequested.connect(self.requestAddSite)
+        self._empty.actionClicked.connect(self._on_empty_action)
 
     def _wire_shortcuts(self) -> None:
         def sc(seq: str, slot: Callable[[], None]) -> None:
@@ -145,6 +177,7 @@ class DrawerWindow(QWidget):
         sc("Ctrl+E", self._emit_edit)
         sc("Ctrl+N", self.requestNew.emit)
         sc("Ctrl+F", self._search.focus)
+        sc("Ctrl+,", self.requestSettings.emit)
         sc("Tab", lambda: self._chips.cycle(1))
         sc("Shift+Tab", lambda: self._chips.cycle(-1))
         sc("Space", self._emit_preview)
@@ -167,8 +200,6 @@ class DrawerWindow(QWidget):
         super().changeEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
-        # Letters typed while a list item is focused should fall through to the
-        # search box for a snappy "type to search" feel.
         if (
             event.text()
             and event.text().isprintable()
@@ -186,7 +217,8 @@ class DrawerWindow(QWidget):
 
     def _apply_filters(self) -> None:
         chip_key = self._chips.active
-        query = self._search.text().strip().lower()
+        query = self._search.text().strip()
+        all_tags = {t.id: t.name for t in tags.list_all()}
 
         def chip_match(p: Prompt) -> bool:
             if chip_key == "all":
@@ -199,13 +231,18 @@ class DrawerWindow(QWidget):
                 return int(chip_key.split(":", 1)[1]) in p.tag_ids
             return True
 
-        def text_match(p: Prompt) -> bool:
-            if not query:
-                return True
-            return query in p.title.lower() or query in p.content.lower()
+        chip_filtered = [p for p in self._all_prompts if chip_match(p)]
+        if query:
+            self._filtered = fuzzy_filter(chip_filtered, query, tag_names=all_tags)
+        else:
+            self._filtered = chip_filtered
 
-        self._filtered = [p for p in self._all_prompts if chip_match(p) and text_match(p)]
-        self._list.set_prompts(self._filtered, self._selected_id)
+        if self._filtered:
+            self._stack.setCurrentWidget(self._list)
+            self._list.set_prompts(self._filtered, self._selected_id)
+        else:
+            self._empty.configure(has_query=bool(query), has_filter=chip_key != "all")
+            self._stack.setCurrentWidget(self._empty)
         self._hint.set_count(len(self._filtered))
 
     def _refresh_chips(self) -> None:
@@ -220,12 +257,17 @@ class DrawerWindow(QWidget):
             chips.append(ChipSpec(f"folder:{f.id}", f.name, cnt))
         for t in tags.list_all():
             cnt = sum(1 for p in self._all_prompts if t.id in p.tag_ids)
-            if cnt:
-                chips.append(ChipSpec(f"tag:{t.id}", f"#{t.name}", cnt))
+            chips.append(ChipSpec(f"tag:{t.id}", f"#{t.name}", cnt))
         self._chips.set_chips(chips)
 
     def _refresh_sites(self) -> None:
-        self._sites.set_sites(sites_repo.list_all())
+        site_list = sites_repo.list_all()
+        self._sites.set_sites(site_list)
+        # auto-fetch missing favicons
+        from app.services.favicon import fetch_async
+        for site in site_list:
+            if not site.favicon_blob:
+                fetch_async(site.id, site.url, on_done=self._refresh_sites)
 
     def _on_select(self, prompt_id: int) -> None:
         self._selected_id = prompt_id
@@ -256,3 +298,23 @@ class DrawerWindow(QWidget):
     def _emit_preview(self) -> None:
         if self._selected_id is not None:
             self.requestPreview.emit(self._selected_id)
+
+    def _on_pin_toggled(self, checked: bool) -> None:
+        self._pinned = checked
+        if checked:
+            self.show_toast("抽屉已钉住", "info")
+        self.pinChanged.emit(checked)
+
+    def _on_sort_changed(self, mode: SortMode) -> None:
+        self._sort_mode = mode
+        self.reload()
+        self.sortChanged.emit(mode)
+
+    def _on_drag_moved(self, delta: QPoint) -> None:
+        self.move(self.pos() + delta)
+
+    def _on_empty_action(self) -> None:
+        if self._search.text():
+            self._search.clear()
+        else:
+            self.requestNew.emit()

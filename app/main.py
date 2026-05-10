@@ -6,7 +6,6 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from app.bootstrap import seed_if_empty
 from app.config import APP_NAME, ensure_dirs
 from app.controller import AppController
 from app.db.connection import get_conn
@@ -28,7 +27,6 @@ def run() -> int:
     app.setQuitOnLastWindowClosed(False)
 
     get_conn()
-    seed_if_empty()
 
     theme_manager().apply(settings_repo.get("theme", "system"))
 
