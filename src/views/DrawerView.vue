@@ -186,9 +186,10 @@ export default defineComponent({
       await windowOpenEditor(null);
     },
     async toggleFav(id: number) { await this.prompts.toggleFavorite(id); },
-    async copyById(id: number) {
+    async injectById(id: number) {
       this.prompts.select(id);
-      await this.copySelected();
+      await this.$nextTick();
+      await this.injectSelected();
     },
     async editById(id: number) {
       await windowOpenEditor(id);
@@ -239,7 +240,7 @@ export default defineComponent({
       :selected-id="prompts.selectedId"
       @select="(id: number) => prompts.select(id)"
       @toggle-fav="toggleFav"
-      @copy="copyById"
+      @inject="injectById"
       @edit="editById"
       @new-prompt="newPrompt"
     />

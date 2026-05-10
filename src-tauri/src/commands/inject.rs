@@ -1,10 +1,12 @@
 // commands/inject.rs — 剪贴板写入 + 模拟粘贴。
 //
-// macOS 关键点：
-//   - 必须在 系统设置 → 隐私与安全 → 辅助功能 里授权 Prompt Hub
-//   - AXIsProcessTrusted() 是真实判定；Enigo::new() 成功 ≠ 已授权
-//   - 抽屉是 NSPanel + nonactivatingPanel，**不会抢焦点**，
-//     所以原应用的输入框 caret 始终保持，注入直接打过去即可
+// 关键流程（Raycast 同款）：
+//   1) 写剪贴板
+//   2) AXIsProcessTrusted() 检查；未授权直接 fallback
+//   3) hide drawer（释放 key window）
+//   4) activate(LastFrontmost.pid) ← 把当时按快捷键时的 frontmost 应用拉回前台
+//   5) sleep ~120ms 让系统切焦稳定
+//   6) enigo 模拟 Cmd/Ctrl+V
 use std::{thread, time::Duration};
 
 use enigo::{Enigo, Key, Keyboard, Settings as EnigoSettings, Direction};
@@ -12,13 +14,14 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
-use crate::platform::permissions;
+use crate::platform::{self, permissions};
+use crate::LastFrontmost;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct InjectResult {
     pub ok: bool,
-    pub fallback: Option<String>, // "clipboard" 或 None
+    pub fallback: Option<String>,
     pub message: Option<String>,
 }
 
@@ -43,22 +46,19 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
     let len = content.len();
     tracing::info!(len, "inject_paste begin");
 
-    // 1) 写入剪贴板
+    // 1) 剪贴板
     if let Err(e) = write_clipboard(&content) {
         tracing::error!(error = %e, "clipboard write failed");
         return Ok(InjectResult {
-            ok: false,
-            fallback: None,
+            ok: false, fallback: None,
             message: Some(format!("clipboard write failed: {e}")),
         });
     }
-    tracing::info!("clipboard written");
 
-    // 2) 检查 macOS 辅助功能权限（这是注入失败的最常见原因）
+    // 2) 权限
     let trusted = permissions::is_trusted();
     tracing::info!(trusted, "AXIsProcessTrusted");
     if !trusted {
-        tracing::warn!("accessibility NOT granted; paste will be silently dropped");
         if let Some(w) = app.get_webview_window("drawer") {
             let _ = w.hide();
         }
@@ -66,21 +66,35 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
             ok: false,
             fallback: Some("clipboard".to_string()),
             message: Some(
-                "macOS 辅助功能未授权 · 请在 系统设置 → 隐私与安全 → 辅助功能 里勾选 Prompt Hub".into()
+                "macOS 辅助功能未授权 · 设置 → 权限诊断 → 请求授权".into(),
             ),
         });
     }
 
-    // 3) NSPanel 不抢焦点，所以原应用的输入框 caret 还在那。
-    //    短暂等待让系统切换稳一些（剪贴板 / 焦点链）。
-    thread::sleep(Duration::from_millis(40));
+    // 3) 隐藏抽屉（释放 key window）
+    if let Some(w) = app.get_webview_window("drawer") {
+        let _ = w.hide();
+    }
 
-    // 4) 模拟 Cmd/Ctrl+V
-    let modifier = if cfg!(target_os = "macos") {
-        Key::Meta
-    } else {
-        Key::Control
-    };
+    // 4) 激活之前保存的 frontmost app（按下快捷键瞬间记下的目标）
+    let target_pid = app
+        .try_state::<LastFrontmost>()
+        .and_then(|s| *s.0.lock());
+    match target_pid {
+        Some(pid) => {
+            tracing::info!(pid, "activating saved frontmost app");
+            platform::activate_app_by_pid(pid);
+        }
+        None => {
+            tracing::warn!("no saved frontmost pid; paste may go to wrong window");
+        }
+    }
+
+    // 5) 等焦点切换稳定。120ms 比之前 40ms 更稳，特别是浏览器渲染进程。
+    thread::sleep(Duration::from_millis(120));
+
+    // 6) Cmd/Ctrl+V
+    let modifier = if cfg!(target_os = "macos") { Key::Meta } else { Key::Control };
     fn do_paste(modifier: Key) -> Result<(), String> {
         let mut e = Enigo::new(&EnigoSettings::default())
             .map_err(|err| format!("enigo init: {err}"))?;
@@ -92,20 +106,13 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
             .map_err(|err| format!("release: {err}"))?;
         Ok(())
     }
-    let result = do_paste(modifier);
-
-    // 5) 不论成败，隐藏抽屉
-    if let Some(w) = app.get_webview_window("drawer") {
-        let _ = w.hide();
-    }
-
-    match result {
+    match do_paste(modifier) {
         Ok(()) => {
             tracing::info!("inject ok");
             Ok(InjectResult { ok: true, fallback: None, message: None })
         }
         Err(msg) => {
-            tracing::warn!(error = %msg, "inject failed; falling back to clipboard");
+            tracing::warn!(error = %msg, "inject paste sim failed");
             Ok(InjectResult {
                 ok: false,
                 fallback: Some("clipboard".to_string()),
@@ -122,7 +129,6 @@ pub fn permissions_check_accessibility() -> bool {
     trusted
 }
 
-/// 调系统弹窗：未授权时引导用户去开权限。
 #[tauri::command]
 pub fn permissions_request_accessibility() -> bool {
     let trusted = permissions::prompt_trust();

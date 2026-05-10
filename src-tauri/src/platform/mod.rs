@@ -1,9 +1,4 @@
-// platform — 跨平台窗口与注入封装。
-// 焦点不抢的实现因平台而异：
-//   - macOS：把 NSWindow 转 NSPanel + nonactivatingPanel style mask
-//   - Windows：SetWindowLongPtr 加 WS_EX_NOACTIVATE
-// MVP 暂时实现为最小版本：主流程依赖"按 Enter → 立即 hide → 等 80ms → 模拟粘贴"
-// 来规避焦点冲突；NSPanel/EX_NOACTIVATE 留给后续打磨。
+// platform — 跨平台窗口与焦点封装。
 use tauri::WebviewWindow;
 
 pub mod permissions;
@@ -15,7 +10,34 @@ mod windows;
 
 pub fn apply_panel_style(_window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
-    macos::apply(_window);
+    macos::apply_panel_style(_window);
     #[cfg(target_os = "windows")]
     windows::apply(_window);
+}
+
+/// 让窗口成为 key window 接收键盘事件。
+pub fn make_key(_window: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    macos::make_key_and_order_front(_window);
+    // Windows 上 show() + set_focus() 已能 key 化，无需额外操作
+}
+
+/// 返回当前 frontmost / foreground app 的 PID。
+pub fn frontmost_app_pid() -> Option<i32> {
+    #[cfg(target_os = "macos")]
+    { return macos::frontmost_app_pid(); }
+    #[cfg(target_os = "windows")]
+    { return windows::foreground_pid(); }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    { None }
+}
+
+/// 把指定 PID 的进程拉到前台。
+pub fn activate_app_by_pid(_pid: i32) -> bool {
+    #[cfg(target_os = "macos")]
+    { return macos::activate_app_by_pid(_pid); }
+    #[cfg(target_os = "windows")]
+    { return windows::activate_pid(_pid); }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    { false }
 }

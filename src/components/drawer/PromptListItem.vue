@@ -1,13 +1,16 @@
-<!-- PromptListItem.vue — 单条列表项；hover 显示 复制 / 编辑 / 收藏 按钮。 -->
+<!--
+  PromptListItem.vue — 列表项；hover 显示「注入 / 编辑 / 收藏」。
+  单击行 = 选中（不注入）；hover 上的紫色注入图标 = 直接注入这条。
+-->
 <script lang="ts">
 import { defineComponent, type PropType } from "vue";
-import { Star, Copy, Pencil, Pin } from "lucide-vue-next";
+import { Star, ArrowRight, Pencil, Pin } from "lucide-vue-next";
 import type { Prompt } from "../../types/prompt";
 import { snippet } from "../../utils/format";
 
 export default defineComponent({
   name: "PromptListItem",
-  components: { Star, Copy, Pencil, Pin },
+  components: { Star, ArrowRight, Pencil, Pin },
   props: {
     prompt: { type: Object as PropType<Prompt>, required: true },
     selected: { type: Boolean, default: false },
@@ -15,7 +18,7 @@ export default defineComponent({
   emits: {
     click: (_id: number) => true,
     "toggle-fav": (_id: number) => true,
-    copy: (_id: number) => true,
+    inject: (_id: number) => true,
     edit: (_id: number) => true,
   },
   computed: {
@@ -24,20 +27,15 @@ export default defineComponent({
     },
   },
   methods: {
-    stop(e: Event) { e.stopPropagation(); },
     onStar(e: Event) { e.stopPropagation(); this.$emit("toggle-fav", this.prompt.id); },
-    onCopy(e: Event) { e.stopPropagation(); this.$emit("copy", this.prompt.id); },
+    onInject(e: Event) { e.stopPropagation(); this.$emit("inject", this.prompt.id); },
     onEdit(e: Event) { e.stopPropagation(); this.$emit("edit", this.prompt.id); },
   },
 });
 </script>
 
 <template>
-  <div
-    class="item"
-    :class="{ selected }"
-    @click="$emit('click', prompt.id)"
-  >
+  <div class="item" :class="{ selected }" @click="$emit('click', prompt.id)">
     <div class="main">
       <div class="title-row">
         <Pin v-if="prompt.is_pinned" :size="11" class="pin" />
@@ -55,11 +53,15 @@ export default defineComponent({
       >
         <Star :size="14" :fill="prompt.is_favorite ? 'currentColor' : 'none'" />
       </button>
-      <button class="ico-btn hover-only" @click="onCopy" title="复制">
-        <Copy :size="14" />
-      </button>
-      <button class="ico-btn hover-only" @click="onEdit" title="编辑">
+      <button class="ico-btn hover-only" @click="onEdit" title="编辑 (⌘E)">
         <Pencil :size="14" />
+      </button>
+      <button
+        class="ico-btn inject-btn hover-only"
+        @click="onInject"
+        title="注入到上一个输入框 (Enter)"
+      >
+        <ArrowRight :size="14" />
       </button>
     </div>
   </div>
@@ -110,7 +112,7 @@ export default defineComponent({
   flex-shrink: 0;
 }
 .ico-btn {
-  width: 24px; height: 24px;
+  width: 26px; height: 26px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 5px;
   color: var(--text-tertiary);
@@ -120,6 +122,10 @@ export default defineComponent({
 }
 .ico-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
 .star-btn.on { color: var(--star); }
+.inject-btn:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
 .hover-only { opacity: 0; }
 .item:hover .hover-only,
 .item.selected .hover-only { opacity: 1; }

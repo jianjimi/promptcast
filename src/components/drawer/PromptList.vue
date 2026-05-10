@@ -14,7 +14,7 @@ export default defineComponent({
   emits: {
     select: (_id: number) => true,
     "toggle-fav": (_id: number) => true,
-    copy: (_id: number) => true,
+    inject: (_id: number) => true,
     edit: (_id: number) => true,
     "new-prompt": () => true,
   },
@@ -48,7 +48,7 @@ export default defineComponent({
           :selected="p.id === selectedId"
           @click="$emit('select', p.id)"
           @toggle-fav="$emit('toggle-fav', p.id)"
-          @copy="$emit('copy', p.id)"
+          @inject="$emit('inject', p.id)"
           @edit="$emit('edit', p.id)"
         />
       </div>

@@ -1,7 +1,8 @@
-// platform/windows.rs — 设 WS_EX_NOACTIVATE 让抽屉不抢焦点。
+// platform/windows.rs — Win32 焦点跟踪。
 use tauri::WebviewWindow;
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Foundation::{HWND, BOOL};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
@@ -21,5 +22,36 @@ pub fn apply(window: &WebviewWindow) {
             | (WS_EX_TOOLWINDOW as isize);
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
     }
-    tracing::info!("Windows ex-style WS_EX_NOACTIVATE applied to {}", window.label());
+    tracing::info!("Windows ex-style applied to {}", window.label());
+}
+
+pub fn foreground_pid() -> Option<i32> {
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() { return None; }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(hwnd, &mut pid as *mut u32);
+        if pid == 0 { None } else { Some(pid as i32) }
+    }
+}
+
+pub fn activate_pid(pid: i32) -> bool {
+    // Win32 没有直接通过 PID 激活的 API；遍历窗口找匹配 PID 的顶层窗口。
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, IsWindowVisible,
+    };
+    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: isize) -> BOOL {
+        let target_pid = lparam as i32;
+        let mut pid: u32 = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, &mut pid as *mut u32); }
+        if pid as i32 == target_pid && unsafe { IsWindowVisible(hwnd) } != 0 {
+            unsafe { SetForegroundWindow(hwnd); }
+            return 0; // 终止枚举
+        }
+        1
+    }
+    unsafe {
+        EnumWindows(Some(enum_proc), pid as isize);
+    }
+    true
 }
