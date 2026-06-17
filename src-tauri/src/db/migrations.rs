@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use crate::error::{AppError, AppResult};
 use super::schema;
 
-const CURRENT_VERSION: i64 = 1;
+const CURRENT_VERSION: i64 = 2;
 
 pub fn migrate(conn: &Connection) -> AppResult<()> {
     let v: i64 = conn
@@ -14,6 +14,11 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
     if v < 1 {
         conn.execute_batch(schema::V1)
             .map_err(|e| AppError::Db(format!("apply v1: {e}")))?;
+    }
+
+    if v < 2 {
+        conn.execute_batch(schema::V2)
+            .map_err(|e| AppError::Db(format!("apply v2: {e}")))?;
     }
 
     if v != CURRENT_VERSION {

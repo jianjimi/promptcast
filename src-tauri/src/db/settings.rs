@@ -9,6 +9,7 @@ use crate::models::settings::{DefaultAction, Settings, ThemeMode};
 const KEYS: &[&str] = &[
     "hotkey", "theme", "default_action", "pin_default",
     "sort_mode", "auto_start", "accessibility_granted",
+    "clipboard_history_enabled", "clipboard_history_limit",
 ];
 
 fn read_string(conn: &Connection, key: &str) -> AppResult<Option<String>> {
@@ -47,6 +48,8 @@ pub fn get_all(conn: &Connection) -> AppResult<Settings> {
         sort_mode: SortMode::RecentUsed,
         auto_start: false,
         accessibility_granted: false,
+        clipboard_history_enabled: true,
+        clipboard_history_limit: 500,
     };
     for key in KEYS {
         if let Some(raw) = read_string(conn, key)? {
@@ -58,6 +61,8 @@ pub fn get_all(conn: &Connection) -> AppResult<Settings> {
                 "sort_mode" => s.sort_mode = parse(&raw)?,
                 "auto_start" => s.auto_start = parse(&raw)?,
                 "accessibility_granted" => s.accessibility_granted = parse(&raw)?,
+                "clipboard_history_enabled" => s.clipboard_history_enabled = parse(&raw)?,
+                "clipboard_history_limit" => s.clipboard_history_limit = parse(&raw)?,
                 _ => {}
             }
         }

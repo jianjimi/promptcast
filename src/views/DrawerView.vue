@@ -9,6 +9,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import SearchBar from "../components/drawer/SearchBar.vue";
 import FilterChips from "../components/drawer/FilterChips.vue";
 import PromptList from "../components/drawer/PromptList.vue";
+import ClipboardList from "../components/drawer/ClipboardList.vue";
 import SiteLauncher from "../components/drawer/SiteLauncher.vue";
 import HintBar from "../components/drawer/HintBar.vue";
 import BaseToast from "../components/ui/BaseToast.vue";
@@ -17,6 +18,7 @@ import { usePromptsStore } from "../stores/prompts";
 import { useFoldersStore } from "../stores/folders";
 import { useTagsStore } from "../stores/tags";
 import { useSitesStore } from "../stores/sites";
+import { useClipboardStore } from "../stores/clipboard";
 import { useSettingsStore } from "../stores/settings";
 import { useUIStore } from "../stores/ui";
 
@@ -30,6 +32,7 @@ import {
   EVT_SITES_CHANGED,
   EVT_SETTINGS_CHANGED,
   EVT_THEME_CHANGED,
+  EVT_CLIPBOARD_CHANGED,
 } from "../composables/useAppEvents";
 import {
   injectPaste,
@@ -43,16 +46,18 @@ import {
 import { log } from "../utils/logger";
 
 import type { Prompt } from "../types/prompt";
+import type { ClipEntry } from "../types/clipboard";
 import type { ThemeMode } from "../types/settings";
 
 export default defineComponent({
   name: "DrawerView",
   components: {
-    SearchBar, FilterChips, PromptList, SiteLauncher, HintBar, BaseToast,
+    SearchBar, FilterChips, PromptList, ClipboardList, SiteLauncher, HintBar, BaseToast,
   },
   data() {
     return {
       query: "",
+      clipSelectedId: null as number | null,
       unlisteners: [] as UnlistenFn[],
     };
   },
@@ -62,6 +67,14 @@ export default defineComponent({
     ui() { return useUIStore(); },
     folders() { return useFoldersStore(); },
     tags() { return useTagsStore(); },
+    clip() { return useClipboardStore(); },
+    isClip(): boolean { return this.ui.activeChipKey === "clipboard"; },
+    clipFiltered(): ClipEntry[] {
+      const list = this.clip.list;
+      const q = this.query.trim().toLowerCase();
+      if (!q) return list;
+      return list.filter((c) => c.content.toLowerCase().includes(q));
+    },
     chipFiltered(): Prompt[] {
       const list = this.prompts.list;
       const k = this.ui.activeChipKey;
@@ -87,9 +100,13 @@ export default defineComponent({
       const out: Record<string, number> = {
         all: list.length,
         favorites: list.filter((p) => p.is_favorite).length,
+        clipboard: this.clip.list.length,
       };
       for (const f of this.folders.list) {
         out[`folder:${f.id}`] = list.filter((p) => p.folder_id === f.id).length;
+      }
+      for (const t of this.tags.list) {
+        out[`tag:${t.id}`] = list.filter((p) => p.tag_ids.includes(t.id)).length;
       }
       return out;
     },
@@ -107,6 +124,18 @@ export default defineComponent({
         this.prompts.select(list[0]?.id ?? null);
       }
     },
+    clipFiltered(list: ClipEntry[]) {
+      if (!list.find((c) => c.id === this.clipSelectedId)) {
+        this.clipSelectedId = list[0]?.id ?? null;
+      }
+    },
+    isClip(on: boolean) {
+      // 切到剪贴板分类时拉一次最新历史，并选中第一条。
+      if (on) {
+        this.clip.loadAll(this.settings.data.clipboard_history_limit);
+        this.clipSelectedId = this.clipFiltered[0]?.id ?? null;
+      }
+    },
   },
   async mounted() {
     log.info("DrawerView mounted");
@@ -116,6 +145,7 @@ export default defineComponent({
       this.tags.loadAll(),
       this.sites().loadAll(),
       this.prompts.loadAll(),
+      this.clip.loadAll(),
     ]);
     applyPersistedTheme(this.settings.data.theme);
     document.addEventListener("keydown", this.onKey);
@@ -133,6 +163,7 @@ export default defineComponent({
         await listenAppEvent(EVT_FOLDERS_CHANGED, () => this.folders.loadAll()),
         await listenAppEvent(EVT_TAGS_CHANGED, () => this.tags.loadAll()),
         await listenAppEvent(EVT_SITES_CHANGED, () => this.sites().loadAll()),
+        await listenAppEvent(EVT_CLIPBOARD_CHANGED, () => this.clip.loadAll(this.settings.data.clipboard_history_limit)),
         await listenAppEvent(EVT_SETTINGS_CHANGED, () => this.settings.loadAll()),
         await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
       );
@@ -142,12 +173,57 @@ export default defineComponent({
       inp?.focus(); inp?.select();
     },
     moveSel(dir: 1 | -1) {
+      if (this.isClip) {
+        const list = this.clipFiltered;
+        if (!list.length) return;
+        const cur = list.findIndex((c) => c.id === this.clipSelectedId);
+        const next = (cur + dir + list.length) % list.length;
+        this.clipSelectedId = list[next].id;
+        return;
+      }
       const list = this.searched;
       if (!list.length) return;
       const cur = list.findIndex((p) => p.id === this.prompts.selectedId);
       const next = (cur + dir + list.length) % list.length;
       this.prompts.select(list[next].id);
     },
+    // ---- 剪贴板模式 ----
+    selectedClip(): ClipEntry | null {
+      return this.clipFiltered.find((c) => c.id === this.clipSelectedId) ?? null;
+    },
+    async injectClipSelected() {
+      const c = this.selectedClip();
+      if (!c) return;
+      try {
+        const r = await injectPaste(c.content);
+        log.info(`clip inject ok=${r.ok} fallback=${r.fallback}`);
+        if (!r.ok) {
+          this.ui.pushToast(r.message ?? "注入失败 · 已复制到剪贴板", "warning");
+        }
+      } catch (e) {
+        this.ui.pushToast(`注入失败: ${e}`, "danger");
+      }
+    },
+    onClipSelect(id: number) { this.clipSelectedId = id; },
+    async injectClip(id: number) {
+      this.clipSelectedId = id;
+      await this.$nextTick();
+      await this.injectClipSelected();
+    },
+    async deleteClip(id: number) {
+      try { await this.clip.remove(id); }
+      catch (e) { log.error(`deleteClip failed: ${e}`); }
+    },
+    async copyClipSelected() {
+      const c = this.selectedClip();
+      if (!c) return;
+      await injectCopyOnly(c.content);
+      this.ui.pushToast("已复制到剪贴板", "success");
+      await windowHideDrawer();
+    },
+    // 根据当前模式分发注入 / 复制。
+    triggerInject() { return this.isClip ? this.injectClipSelected() : this.injectSelected(); },
+    triggerCopy() { return this.isClip ? this.copyClipSelected() : this.copySelected(); },
     async injectSelected() {
       log.info("injectSelected entry");
       const p = this.selectedPrompt;
@@ -164,8 +240,9 @@ export default defineComponent({
       try {
         const r = await injectPaste(p.content);
         log.info(`injectPaste returned ok=${r.ok} fallback=${r.fallback} msg=${r.message}`);
-        await this.prompts.recordUse(p.id);
-        if (!r.ok) {
+        if (r.ok) {
+          await this.prompts.recordUse(p.id);
+        } else {
           this.ui.pushToast(r.message ?? "注入失败 · 已复制到剪贴板", "warning");
         }
       } catch (e) {
@@ -180,6 +257,7 @@ export default defineComponent({
       await injectCopyOnly(p.content);
       await this.prompts.recordUse(p.id);
       this.ui.pushToast("已复制到剪贴板", "success");
+      await windowHideDrawer();
     },
     async editSelected() {
       const p = this.selectedPrompt;
@@ -221,15 +299,15 @@ export default defineComponent({
       if (e.key === "ArrowDown") { e.preventDefault(); this.moveSel(1); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); this.moveSel(-1); return; }
       if (e.key === "Enter" && !inEditable) {
-        e.preventDefault(); this.injectSelected(); return;
+        e.preventDefault(); this.triggerInject(); return;
       }
       if (e.key === "Enter" && inEditable && target?.tagName === "INPUT") {
-        e.preventDefault(); this.injectSelected(); return;
+        e.preventDefault(); this.triggerInject(); return;
       }
       if (cmd && (e.key === "c" || e.key === "C") && !inEditable) {
-        e.preventDefault(); this.copySelected(); return;
+        e.preventDefault(); this.triggerCopy(); return;
       }
-      if (cmd && (e.key === "e" || e.key === "E")) {
+      if (cmd && (e.key === "e" || e.key === "E") && !this.isClip) {
         e.preventDefault(); this.editSelected(); return;
       }
       if (cmd && (e.key === "n" || e.key === "N")) {
@@ -238,7 +316,7 @@ export default defineComponent({
       if (cmd && (e.key === "f" || e.key === "F")) {
         e.preventDefault(); this.focusSearch(); return;
       }
-      if (e.key === " " && !inEditable) {
+      if (e.key === " " && !inEditable && !this.isClip) {
         e.preventDefault(); this.previewSelected(); return;
       }
       if (e.key === "Escape") {
@@ -255,6 +333,7 @@ export default defineComponent({
     <SearchBar v-model="query" />
     <FilterChips :counts="counts" />
     <PromptList
+      v-if="!isClip"
       :prompts="searched"
       :selected-id="prompts.selectedId"
       @select="onSelect"
@@ -263,8 +342,16 @@ export default defineComponent({
       @edit="editById"
       @new-prompt="newPrompt"
     />
+    <ClipboardList
+      v-else
+      :entries="clipFiltered"
+      :selected-id="clipSelectedId"
+      @select="onClipSelect"
+      @inject="injectClip"
+      @delete="deleteClip"
+    />
     <SiteLauncher />
-    <HintBar :count="searched.length" />
+    <HintBar :count="isClip ? clipFiltered.length : searched.length" />
     <BaseToast />
   </div>
 </template>

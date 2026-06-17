@@ -8,3 +8,4 @@ pub mod sites;
 pub mod data;
 pub mod inject;
 pub mod window;
+pub mod clipboard;

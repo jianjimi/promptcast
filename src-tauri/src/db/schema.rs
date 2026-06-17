@@ -52,3 +52,15 @@ CREATE INDEX IF NOT EXISTS idx_prompts_folder    ON prompts(folder_id);
 CREATE INDEX IF NOT EXISTS idx_prompts_lastused  ON prompts(last_used_at);
 CREATE INDEX IF NOT EXISTS idx_prompts_pinned    ON prompts(is_pinned, is_favorite);
 "#;
+
+// V2 — 剪贴板历史（仅文本）。后台监听 changeCount，自动入库。
+pub const V2: &str = r#"
+CREATE TABLE IF NOT EXISTS clipboard_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  content     TEXT NOT NULL,
+  char_count  INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_clip_created ON clipboard_history(created_at DESC);
+"#;

@@ -15,9 +15,32 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings as EnigoSettings};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
+use parking_lot::Mutex;
+use std::sync::OnceLock;
+
 use crate::error::{AppError, AppResult};
 use crate::platform::{self, permissions};
 use crate::LastFrontmost;
+
+// 记录「我们自己刚写进剪贴板的内容」，让剪贴板历史监听线程跳过自注入/复制/还原，
+// 避免把注入的提示词也记成一次外部「复制」。
+static LAST_SELF_COPY: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+fn self_copy_cell() -> &'static Mutex<Option<String>> {
+    LAST_SELF_COPY.get_or_init(|| Mutex::new(None))
+}
+pub fn note_self_copy(text: &str) {
+    *self_copy_cell().lock() = Some(text.to_string());
+}
+/// 若 `text` 正是我们刚写入的内容，返回 true 并清除标记（一次性消费）。
+pub fn is_recent_self_copy(text: &str) -> bool {
+    let mut g = self_copy_cell().lock();
+    if g.as_deref() == Some(text) {
+        *g = None;
+        true
+    } else {
+        false
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +74,7 @@ fn schedule_clipboard_restore(prev: Option<String>, just_pasted: String, delay_m
             // 仅在剪贴板内容仍是我们注入的那段时还原 —— 避免覆盖用户期间手动复制的内容。
             let still_ours = cb.get_text().ok().as_deref() == Some(just_pasted.as_str());
             if still_ours {
+                note_self_copy(&prev);
                 if let Err(e) = cb.set_text(prev) {
                     tracing::warn!(error = %e, "clipboard restore failed");
                 } else {
@@ -63,10 +87,34 @@ fn schedule_clipboard_restore(prev: Option<String>, just_pasted: String, delay_m
     });
 }
 
+/// 轮询等待 `target_pid` 成为前台进程，最长等 `deadline`。
+/// 已是前台或超时即返回，之后再给渲染进程一点缓冲。比固定 sleep 稳得多。
+fn wait_until_foreground(target_pid: Option<i32>, deadline: Duration) {
+    let step = Duration::from_millis(15);
+    let mut waited = Duration::ZERO;
+    loop {
+        if let Some(tp) = target_pid {
+            if platform::frontmost_app_pid() == Some(tp) {
+                tracing::info!(tp, ?waited, "target is frontmost");
+                break;
+            }
+        }
+        if waited >= deadline {
+            tracing::warn!(?deadline, "target not frontmost before deadline; pasting anyway");
+            break;
+        }
+        thread::sleep(step);
+        waited += step;
+    }
+    // 焦点到位后给渲染进程（浏览器/Electron）一点缓冲再粘贴。
+    thread::sleep(Duration::from_millis(40));
+}
+
 #[tauri::command]
 pub fn inject_copy_only(content: String) -> AppResult<()> {
     let len = content.len();
     write_clipboard(&content)?;
+    note_self_copy(&content);
     tracing::info!(len, "clipboard written (copy_only)");
     Ok(())
 }
@@ -88,6 +136,7 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
             message: Some(format!("clipboard write failed: {e}")),
         });
     }
+    note_self_copy(&content);
 
     // 3) 权限（macOS：AXIsProcessTrusted；Windows：恒 true）
     let trusted = permissions::is_trusted();
@@ -96,8 +145,13 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
         if let Some(w) = app.get_webview_window("drawer") {
             let _ = w.hide();
         }
+        // 主动弹出系统辅助功能授权引导框（首次未授权时出现「打开系统设置」）。
+        #[cfg(target_os = "macos")]
+        {
+            let _ = permissions::prompt_trust();
+        }
         let msg = if cfg!(target_os = "macos") {
-            "macOS 辅助功能未授权 · 设置 → 权限诊断 → 请求授权"
+            "已弹出辅助功能授权框 · 授权后重开应用即可注入 · 本次已复制到剪贴板"
         } else {
             "键盘模拟权限不足 · 已复制到剪贴板"
         };
@@ -108,16 +162,28 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
         });
     }
 
-    // 4) 隐藏抽屉（释放 key window）
-    if let Some(w) = app.get_webview_window("drawer") {
-        let _ = w.hide();
-    }
-
-    // 5) 激活之前保存的目标窗口
+    // 4) 取出之前保存的目标窗口。若没有目标（如未经热键唤起就注入），
+    //    不要盲粘 —— 会粘到桌面/本进程。直接回退「已复制」并提示。
     let target = app
         .try_state::<LastFrontmost>()
         .map(|s| *s.0.lock())
         .unwrap_or_default();
+    if target.pid.is_none() && target.hwnd.is_none() {
+        tracing::warn!("no saved target window; falling back to copy");
+        if let Some(w) = app.get_webview_window("drawer") {
+            let _ = w.hide();
+        }
+        return Ok(InjectResult {
+            ok: false,
+            fallback: Some("clipboard".to_string()),
+            message: Some("未捕获目标窗口 · 已复制到剪贴板".into()),
+        });
+    }
+
+    // 5) 隐藏抽屉（释放 key window），激活目标窗口。
+    if let Some(w) = app.get_webview_window("drawer") {
+        let _ = w.hide();
+    }
     match (target.hwnd, target.pid) {
         (Some(hwnd), pid) => {
             tracing::info!(hwnd, ?pid, "activating saved target window");
@@ -127,15 +193,13 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
             tracing::info!(pid, "activating saved frontmost pid");
             platform::activate_app_by_pid(pid);
         }
-        (None, None) => {
-            tracing::warn!("no saved target; paste may go to wrong window");
-        }
+        (None, None) => {}
     }
 
-    // 6) 等焦点切换稳定。120ms 比之前 40ms 更稳，特别是浏览器渲染进程。
-    thread::sleep(Duration::from_millis(120));
+    // 6) 轮询等待目标真正到前台再粘贴（替代固定 120ms 死等，根治偶发「粘不上」）。
+    wait_until_foreground(target.pid, Duration::from_millis(450));
 
-    // 7) Cmd/Ctrl+V
+    // 7) Cmd/Ctrl+V —— 无论 'v' 是否出错都释放修饰键，避免 Cmd/Ctrl 卡在按下态。
     let modifier = if cfg!(target_os = "macos") {
         Key::Meta
     } else {
@@ -146,11 +210,14 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
             .map_err(|err| format!("enigo init: {err}"))?;
         e.key(modifier, Direction::Press)
             .map_err(|err| format!("press: {err}"))?;
-        e.key(Key::Unicode('v'), Direction::Click)
-            .map_err(|err| format!("v: {err}"))?;
-        e.key(modifier, Direction::Release)
-            .map_err(|err| format!("release: {err}"))?;
-        Ok(())
+        // 'v' 出错也要继续释放修饰键；用 and 保留第一个错误。
+        let v = e
+            .key(Key::Unicode('v'), Direction::Click)
+            .map_err(|err| format!("v: {err}"));
+        let release = e
+            .key(modifier, Direction::Release)
+            .map_err(|err| format!("release: {err}"));
+        v.and(release)
     }
     let result = do_paste(modifier);
 

@@ -13,3 +13,4 @@ export * from "./sites";
 export * from "./inject";
 export * from "./window";
 export * from "./data";
+export * from "./clipboard";

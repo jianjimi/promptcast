@@ -63,6 +63,23 @@ pub fn frontmost_window_handle() -> Option<isize> {
     }
 }
 
+/// 通用剪贴板的「变更计数 / 序列号」。轮询它判断是否有新复制；
+/// macOS = NSPasteboard.changeCount，Windows = GetClipboardSequenceNumber。
+pub fn clipboard_change_count() -> i64 {
+    #[cfg(target_os = "macos")]
+    {
+        return macos::clipboard_change_count();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::clipboard_sequence();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        0
+    }
+}
+
 /// 把指定 PID 的进程拉到前台。
 pub fn activate_app_by_pid(_pid: i32) -> bool {
     #[cfg(target_os = "macos")]

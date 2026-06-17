@@ -29,6 +29,7 @@ export default defineComponent({
       return [
         { key: "all", label: "全部" },
         { key: "favorites", label: "收藏", icon: "★" },
+        { key: "clipboard", label: "剪贴板", icon: "📋" },
         ...folders.map((f) => ({ key: `folder:${f.id}`, label: f.name })),
         ...tags.map((t) => ({ key: `tag:${t.id}`, label: `#${t.name}` })),
       ];

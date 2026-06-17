@@ -12,6 +12,8 @@ export interface Settings {
   sort_mode: SortMode;
   auto_start: boolean;
   accessibility_granted: boolean; // mac 辅助功能是否授权
+  clipboard_history_enabled: boolean; // 是否记录剪贴板历史
+  clipboard_history_limit: number; // 保留条数上限
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -22,4 +24,6 @@ export const DEFAULT_SETTINGS: Settings = {
   sort_mode: "recent_used",
   auto_start: false,
   accessibility_granted: false,
+  clipboard_history_enabled: true,
+  clipboard_history_limit: 500,
 };

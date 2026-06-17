@@ -116,6 +116,12 @@ export default defineComponent({
     async toggleAutoStart(v: boolean) {
       await this.settings.set("auto_start", v);
     },
+    async setClipboardEnabled(v: boolean) {
+      await this.settings.set("clipboard_history_enabled", v);
+    },
+    async setClipboardLimit(n: number) {
+      await this.settings.set("clipboard_history_limit", n);
+    },
     async saveHotkey() {
       log.info(`saving hotkey: ${this.hotkeyDraft}`);
       await this.settings.set("hotkey", this.hotkeyDraft || null);
@@ -211,6 +217,38 @@ export default defineComponent({
                   @change="(e) => toggleAutoStart((e.target as HTMLInputElement).checked)" />
                 <span />
               </label>
+            </div>
+          </div>
+          <div class="card">
+            <div class="row">
+              <div>
+                <div class="title">记录剪贴板历史</div>
+                <div class="sub">后台记录复制的文本，在抽屉「剪贴板」分类里查看。仅文本，图片/附件忽略。</div>
+              </div>
+              <span class="spacer" />
+              <label class="switch">
+                <input type="checkbox" :checked="settings.data.clipboard_history_enabled"
+                  @change="(e) => setClipboardEnabled((e.target as HTMLInputElement).checked)" />
+                <span />
+              </label>
+            </div>
+            <div v-if="settings.data.clipboard_history_enabled" class="row">
+              <div>
+                <div class="title">保留条数</div>
+                <div class="sub">超出后自动丢弃最旧的记录。</div>
+              </div>
+              <span class="spacer" />
+              <select
+                :value="settings.data.clipboard_history_limit"
+                @change="(e) => setClipboardLimit(Number((e.target as HTMLSelectElement).value))"
+                style="height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-surface);color:var(--text-primary);font-size:12px;padding:0 8px;"
+              >
+                <option :value="100">100</option>
+                <option :value="200">200</option>
+                <option :value="500">500</option>
+                <option :value="1000">1000</option>
+                <option :value="2000">2000</option>
+              </select>
             </div>
           </div>
         </section>

@@ -9,6 +9,7 @@ pub mod folders;
 pub mod tags;
 pub mod sites;
 pub mod settings;
+pub mod clipboard;
 
 use std::path::Path;
 use parking_lot::Mutex;

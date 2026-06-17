@@ -27,7 +27,7 @@
         "skipTaskbar": true,
         "visible": true,
         "center": true,
-        "shadow": false
+        "shadow": true
       },
       {
         "label": "editor",

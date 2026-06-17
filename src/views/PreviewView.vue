@@ -103,11 +103,11 @@ export default defineComponent({
     async inject() {
       if (!this.prompt) return;
       const r = await injectPaste(this.prompt.content);
-      await promptsRecordUse(this.prompt.id);
-      if (!r.ok) {
-        useUIStore().pushToast("已复制到剪贴板", "info");
-      } else {
+      if (r.ok) {
+        await promptsRecordUse(this.prompt.id);
         getCurrentWebviewWindow().close();
+      } else {
+        useUIStore().pushToast(r.message ?? "注入失败 · 已复制到剪贴板", "warning");
       }
     },
     onKey(e: KeyboardEvent) {

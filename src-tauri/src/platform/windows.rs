@@ -8,6 +8,7 @@
 //   - WS_EX_NOACTIVATE 会让 webview 拿不到键盘焦点 —— 主 drawer 不能用它。
 use tauri::WebviewWindow;
 use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows_sys::Win32::System::Threading::AttachThreadInput;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowLongPtrW,
@@ -31,6 +32,11 @@ pub fn apply(window: &WebviewWindow) {
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
     }
     tracing::info!("Windows ex-style applied to {}", window.label());
+}
+
+/// 剪贴板序列号；每次内容变化都会递增。轮询它判断是否有新复制。
+pub fn clipboard_sequence() -> i64 {
+    unsafe { GetClipboardSequenceNumber() as i64 }
 }
 
 pub fn foreground_pid() -> Option<i32> {

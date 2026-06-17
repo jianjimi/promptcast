@@ -10,6 +10,7 @@ export const EVT_TAGS_CHANGED = "tags-changed";
 export const EVT_SITES_CHANGED = "sites-changed";
 export const EVT_SETTINGS_CHANGED = "settings-changed";
 export const EVT_THEME_CHANGED = "theme-changed";
+export const EVT_CLIPBOARD_CHANGED = "clipboard-changed";
 
 export async function listenAppEvent<T = unknown>(
   name: string,

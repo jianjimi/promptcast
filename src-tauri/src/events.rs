@@ -8,6 +8,7 @@ pub const TAGS_CHANGED: &str = "tags-changed";
 pub const SITES_CHANGED: &str = "sites-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const THEME_CHANGED: &str = "theme-changed";
+pub const CLIPBOARD_CHANGED: &str = "clipboard-changed";
 
 use tauri::{AppHandle, Emitter};
 
@@ -28,4 +29,7 @@ pub fn emit_settings_changed(app: &AppHandle, key: &str) {
 }
 pub fn emit_theme_changed(app: &AppHandle, theme: &str) {
     let _ = app.emit(THEME_CHANGED, theme);
+}
+pub fn emit_clipboard_changed(app: &AppHandle) {
+    let _ = app.emit(CLIPBOARD_CHANGED, ());
 }

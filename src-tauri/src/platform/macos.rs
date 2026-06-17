@@ -82,6 +82,11 @@ pub fn apply_panel_style(window: &WebviewWindow) {
         let _: () = msg_send![ns_window, setMovable: true];
         let _: () = msg_send![ns_window, setMovableByWindowBackground: true];
         let _: () = msg_send![ns_window, setLevel: NS_FLOATING_WINDOW_LEVEL];
+
+        // 投影：透明 + 圆角窗需要显式开启并刷新，否则窗口边缘很「突兀」。
+        // macOS 会按内容的不透明轮廓（圆角卡片）生成对应的圆角阴影。
+        let _: () = msg_send![ns_window, setHasShadow: true];
+        let _: () = msg_send![ns_window, invalidateShadow];
     }
     tracing::info!("macOS window style applied to {}", window.label());
 }
@@ -117,6 +122,18 @@ pub fn frontmost_app_pid() -> Option<i32> {
             return None;
         }
         Some(pid)
+    }
+}
+
+/// 通用剪贴板的变更计数（macOS 没有变化事件，靠轮询这个计数器判断是否有新复制）。
+pub fn clipboard_change_count() -> i64 {
+    unsafe {
+        let pb: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        if pb.is_null() {
+            return 0;
+        }
+        let n: i64 = msg_send![pb, changeCount];
+        n
     }
 }
 

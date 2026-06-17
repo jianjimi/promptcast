@@ -11,5 +11,8 @@ export default defineComponent({
 </script>
 
 <template>
-  <router-view />
+  <!-- :key 强制按路由（含 /editor/:id、/preview/:id）重挂载：
+       单例窗口被复用切到另一条 prompt 时，mounted() 会重跑、重新加载数据，
+       避免「编辑 B 实际覆盖 A」的脏数据 bug。 -->
+  <router-view :key="$route.fullPath" />
 </template>

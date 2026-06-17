@@ -26,4 +26,6 @@ pub struct Settings {
     pub sort_mode: super::prompt::SortMode,
     pub auto_start: bool,
     pub accessibility_granted: bool,
+    pub clipboard_history_enabled: bool,
+    pub clipboard_history_limit: u32,
 }

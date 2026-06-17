@@ -100,10 +100,12 @@ export default defineComponent({
   transition: background var(--dur-fast) var(--ease-out);
 }
 .item:hover { background: var(--bg-hover); }
+/* 选中态：柔和整块高亮 + 细描边，区别于 hover；不再用生硬的彩色左边条。 */
 .item.selected {
   background: var(--bg-selected);
-  box-shadow: inset 2.5px 0 0 var(--accent);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
+.item.selected .title { color: var(--text-primary); }
 .main { flex: 1; min-width: 0; }
 .title-row {
   display: flex; gap: 4px; align-items: center;
