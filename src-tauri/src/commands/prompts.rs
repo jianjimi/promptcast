@@ -52,8 +52,8 @@ pub fn prompts_update(
 #[tauri::command]
 pub fn prompts_delete(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     {
-        let conn = db.0.lock();
-        db::prompts::delete(&conn, id)?;
+        let mut conn = db.0.lock();
+        db::prompts::delete(&mut conn, id)?;
     }
     tracing::info!(id, "prompt deleted");
     events::emit_prompts_changed(&app);

@@ -40,8 +40,8 @@ pub fn tags_rename(app: AppHandle, db: State<'_, DbState>, id: i64, name: String
 #[tauri::command]
 pub fn tags_delete(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     {
-        let conn = db.0.lock();
-        db::tags::delete(&conn, id)?;
+        let mut conn = db.0.lock();
+        db::tags::delete(&mut conn, id)?;
     }
     events::emit_tags_changed(&app);
     events::emit_prompts_changed(&app);

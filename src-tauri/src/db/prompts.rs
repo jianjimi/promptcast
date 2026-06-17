@@ -51,7 +51,7 @@ fn fetch_tag_ids(conn: &Connection, prompt_id: i64) -> AppResult<Vec<i64>> {
 
 pub fn list(conn: &Connection, sort: SortMode) -> AppResult<Vec<Prompt>> {
     let sql = format!(
-        "SELECT {SELECT_COLS} FROM prompts ORDER BY {}",
+        "SELECT {SELECT_COLS} FROM prompts WHERE deleted_at IS NULL ORDER BY {}",
         order_clause(sort)
     );
     let mut stmt = conn
@@ -70,7 +70,9 @@ pub fn list(conn: &Connection, sort: SortMode) -> AppResult<Vec<Prompt>> {
 
 pub fn get(conn: &Connection, id: i64) -> AppResult<Prompt> {
     let mut stmt = conn
-        .prepare(&format!("SELECT {SELECT_COLS} FROM prompts WHERE id = ?1"))
+        .prepare(&format!(
+            "SELECT {SELECT_COLS} FROM prompts WHERE id = ?1 AND deleted_at IS NULL"
+        ))
         .map_err(|e| AppError::Db(e.to_string()))?;
     let mut p = stmt.query_row(params![id], map_row).map_err(|e| match e {
         rusqlite::Error::QueryReturnedNoRows => AppError::NotFound(format!("prompt {id}")),
@@ -101,13 +103,15 @@ pub fn create(conn: &mut Connection, draft: PromptDraft) -> AppResult<Prompt> {
         return Err(AppError::InvalidInput("title is empty".into()));
     }
     let now = now_ms();
+    let uuid = uuid::Uuid::new_v4().to_string();
     let tx = conn
         .transaction()
         .map_err(|e| AppError::Db(e.to_string()))?;
+    // dirty 由列 DEFAULT 1 自动置位 ⇒ 新建即排队 push。
     tx.execute(
-        "INSERT INTO prompts (title, content, folder_id, is_favorite, is_pinned, \
-         use_count, created_at, updated_at) VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
-        params![draft.title, draft.content, draft.folder_id, now],
+        "INSERT INTO prompts (uuid, title, content, folder_id, is_favorite, is_pinned, \
+         use_count, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 0, 0, 0, ?5, ?5)",
+        params![uuid, draft.title, draft.content, draft.folder_id, now],
     )
     .map_err(|e| AppError::Db(e.to_string()))?;
     let id = tx.last_insert_rowid();
@@ -125,8 +129,8 @@ pub fn update(conn: &mut Connection, id: i64, draft: PromptDraft) -> AppResult<P
         .map_err(|e| AppError::Db(e.to_string()))?;
     let n = tx
         .execute(
-            "UPDATE prompts SET title=?1, content=?2, folder_id=?3, updated_at=?4 \
-             WHERE id=?5",
+            "UPDATE prompts SET title=?1, content=?2, folder_id=?3, updated_at=?4, dirty=1 \
+             WHERE id=?5 AND deleted_at IS NULL",
             params![draft.title, draft.content, draft.folder_id, now_ms(), id],
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
@@ -138,21 +142,34 @@ pub fn update(conn: &mut Connection, id: i64, draft: PromptDraft) -> AppResult<P
     get(conn, id)
 }
 
-pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
-    let n = conn
-        .execute("DELETE FROM prompts WHERE id = ?1", params![id])
+/// 软删除：打墓碑 + dirty，不物理删行（让别的设备能学到删除）。
+/// junction 是纯本地派生表，直接清掉。事务保证原子。
+pub fn delete(conn: &mut Connection, id: i64) -> AppResult<()> {
+    let now = now_ms();
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    let n = tx
+        .execute(
+            "UPDATE prompts SET deleted_at = ?1, updated_at = ?1, dirty = 1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![now, id],
+        )
         .map_err(|e| AppError::Db(e.to_string()))?;
     if n == 0 {
         return Err(AppError::NotFound(format!("prompt {id}")));
     }
+    tx.execute("DELETE FROM prompt_tags WHERE prompt_id = ?1", params![id])
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    tx.commit().map_err(|e| AppError::Db(e.to_string()))?;
     Ok(())
 }
 
 pub fn toggle_favorite(conn: &Connection, id: i64) -> AppResult<Prompt> {
     let n = conn
         .execute(
-            "UPDATE prompts SET is_favorite = 1 - is_favorite, updated_at = ?1 \
-             WHERE id = ?2",
+            "UPDATE prompts SET is_favorite = 1 - is_favorite, updated_at = ?1, dirty = 1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
             params![now_ms(), id],
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
@@ -165,8 +182,8 @@ pub fn toggle_favorite(conn: &Connection, id: i64) -> AppResult<Prompt> {
 pub fn toggle_pin(conn: &Connection, id: i64) -> AppResult<Prompt> {
     let n = conn
         .execute(
-            "UPDATE prompts SET is_pinned = 1 - is_pinned, updated_at = ?1 \
-             WHERE id = ?2",
+            "UPDATE prompts SET is_pinned = 1 - is_pinned, updated_at = ?1, dirty = 1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
             params![now_ms(), id],
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
@@ -256,17 +273,17 @@ mod tests {
 
     #[test]
     fn delete_missing_is_not_found() {
-        let c = memory_conn();
-        assert!(matches!(delete(&c, 999), Err(AppError::NotFound(_))));
+        let mut c = memory_conn();
+        assert!(matches!(delete(&mut c, 999), Err(AppError::NotFound(_))));
     }
 
     #[test]
-    fn deleting_prompt_cascades_prompt_tags() {
+    fn deleting_prompt_clears_junction() {
         let mut c = memory_conn();
         let t1 = tags::create(&c, "a", None).unwrap().id;
         let p = create(&mut c, draft("x", vec![t1])).unwrap();
-        delete(&c, p.id).unwrap();
-        // 外键 ON DELETE CASCADE 生效（依赖 PRAGMA foreign_keys=ON）。
+        delete(&mut c, p.id).unwrap();
+        // junction 被显式清空（纯本地派生表）。
         let n: i64 = c
             .query_row(
                 "SELECT COUNT(*) FROM prompt_tags WHERE prompt_id = ?1",
@@ -275,5 +292,46 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn delete_sets_tombstone_not_row() {
+        let mut c = memory_conn();
+        let p = create(&mut c, draft("x", vec![])).unwrap();
+        delete(&mut c, p.id).unwrap();
+        // 行还在（墓碑），deleted_at/dirty 已置位。
+        let (deleted_at, dirty): (Option<i64>, i64) = c
+            .query_row(
+                "SELECT deleted_at, dirty FROM prompts WHERE id = ?1",
+                params![p.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(deleted_at.is_some(), "tombstone set");
+        assert_eq!(dirty, 1, "dirty queued for push");
+    }
+
+    #[test]
+    fn list_and_get_hide_tombstoned() {
+        let mut c = memory_conn();
+        let p = create(&mut c, draft("x", vec![])).unwrap();
+        delete(&mut c, p.id).unwrap();
+        assert!(list(&c, SortMode::Created).unwrap().is_empty());
+        assert!(matches!(get(&c, p.id), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn create_sets_uuid_and_dirty() {
+        let mut c = memory_conn();
+        let p = create(&mut c, draft("x", vec![])).unwrap();
+        let (uuid, dirty): (Option<String>, i64) = c
+            .query_row(
+                "SELECT uuid, dirty FROM prompts WHERE id = ?1",
+                params![p.id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(uuid.is_some_and(|u| !u.is_empty()), "uuid generated");
+        assert_eq!(dirty, 1);
     }
 }

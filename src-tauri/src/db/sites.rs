@@ -38,7 +38,8 @@ fn to_data_uri(blob: Option<Vec<u8>>, mime: Option<String>) -> Option<String> {
 
 pub fn list(conn: &Connection) -> AppResult<Vec<Site>> {
     let sql = "SELECT id, name, url, favicon_blob, favicon_mime, favicon_fetched_at, \
-               sort_order, created_at FROM sites ORDER BY sort_order ASC, id ASC";
+               sort_order, created_at FROM sites WHERE deleted_at IS NULL \
+               ORDER BY sort_order ASC, id ASC";
     let mut stmt = conn.prepare(sql).map_err(|e| AppError::Db(e.to_string()))?;
     let rows = stmt
         .query_map([], map_row_basic)
@@ -62,7 +63,7 @@ pub fn list(conn: &Connection) -> AppResult<Vec<Site>> {
 
 pub fn get(conn: &Connection, id: i64) -> AppResult<Site> {
     let sql = "SELECT id, name, url, favicon_blob, favicon_mime, favicon_fetched_at, \
-               sort_order, created_at FROM sites WHERE id = ?1";
+               sort_order, created_at FROM sites WHERE id = ?1 AND deleted_at IS NULL";
     let (id, name, url, blob, mime, fetched, so, ca) = conn
         .query_row(sql, params![id], map_row_basic)
         .map_err(|e| match e {
@@ -92,9 +93,11 @@ pub fn create(conn: &Connection, name: &str, url: &str) -> AppResult<Site> {
         })
         .map_err(|e| AppError::Db(e.to_string()))?;
     let now = now_ms();
+    let uuid = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO sites (name, url, sort_order, created_at) VALUES (?1, ?2, ?3, ?4)",
-        params![name, url, max_order + 1, now],
+        "INSERT INTO sites (uuid, name, url, sort_order, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![uuid, name, url, max_order + 1, now],
     )
     .map_err(|e| AppError::Db(e.to_string()))?;
     get(conn, conn.last_insert_rowid())
@@ -103,8 +106,8 @@ pub fn create(conn: &Connection, name: &str, url: &str) -> AppResult<Site> {
 pub fn update(conn: &Connection, id: i64, name: &str, url: &str) -> AppResult<Site> {
     let n = conn
         .execute(
-            "UPDATE sites SET name = ?1, url = ?2 WHERE id = ?3",
-            params![name.trim(), url.trim(), id],
+            "UPDATE sites SET name = ?1, url = ?2, updated_at = ?3, dirty = 1 WHERE id = ?4",
+            params![name.trim(), url.trim(), now_ms(), id],
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
     if n == 0 {
@@ -113,9 +116,15 @@ pub fn update(conn: &Connection, id: i64, name: &str, url: &str) -> AppResult<Si
     get(conn, id)
 }
 
+/// 软删除（sites 无 FK 依赖，最简单）。
 pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
+    let now = now_ms();
     let n = conn
-        .execute("DELETE FROM sites WHERE id = ?1", params![id])
+        .execute(
+            "UPDATE sites SET deleted_at = ?1, updated_at = ?1, dirty = 1 \
+             WHERE id = ?2 AND deleted_at IS NULL",
+            params![now, id],
+        )
         .map_err(|e| AppError::Db(e.to_string()))?;
     if n == 0 {
         return Err(AppError::NotFound(format!("site {id}")));
@@ -124,13 +133,14 @@ pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
 }
 
 pub fn reorder(conn: &mut Connection, ordered_ids: &[i64]) -> AppResult<()> {
+    let now = now_ms();
     let tx = conn
         .transaction()
         .map_err(|e| AppError::Db(e.to_string()))?;
     for (i, id) in ordered_ids.iter().enumerate() {
         tx.execute(
-            "UPDATE sites SET sort_order = ?1 WHERE id = ?2",
-            params![i as i64, id],
+            "UPDATE sites SET sort_order = ?1, updated_at = ?2, dirty = 1 WHERE id = ?3",
+            params![i as i64, now, id],
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
     }

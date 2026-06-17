@@ -9,6 +9,7 @@ pub mod prompts;
 pub mod schema;
 pub mod settings;
 pub mod sites;
+pub mod sync_state;
 pub mod tags;
 
 use parking_lot::Mutex;

@@ -110,8 +110,14 @@ fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -
             Some(id) => id,
             None => {
                 tx.execute(
-                    "INSERT INTO folders (name, sort_order, created_at) VALUES (?1, ?2, ?3)",
-                    params![f.name, f.sort_order, f.created_at],
+                    "INSERT INTO folders (uuid, name, sort_order, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?4)",
+                    params![
+                        uuid::Uuid::new_v4().to_string(),
+                        f.name,
+                        f.sort_order,
+                        f.created_at
+                    ],
                 )
                 .map_err(dberr)?;
                 inserted += 1;
@@ -136,8 +142,14 @@ fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -
             Some(id) => id,
             None => {
                 tx.execute(
-                    "INSERT INTO tags (name, color) VALUES (?1, ?2)",
-                    params![t.name, t.color],
+                    "INSERT INTO tags (uuid, name, color, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?4)",
+                    params![
+                        uuid::Uuid::new_v4().to_string(),
+                        t.name,
+                        t.color,
+                        crate::db::now_ms()
+                    ],
                 )
                 .map_err(dberr)?;
                 inserted += 1;
@@ -152,10 +164,11 @@ fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -
         let new_folder = p.folder_id.and_then(|fid| folder_map.get(&fid).copied());
         tx.execute(
             "INSERT INTO prompts \
-             (title, content, folder_id, is_favorite, is_pinned, use_count, \
+             (uuid, title, content, folder_id, is_favorite, is_pinned, use_count, \
               last_used_at, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
+                uuid::Uuid::new_v4().to_string(),
                 p.title,
                 p.content,
                 new_folder,
@@ -184,8 +197,15 @@ fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -
     // sites：不保留源 id；favicon 从 data URI 还原成 blob+mime（之前导入丢图标）。
     for s in &snap.sites {
         tx.execute(
-            "INSERT INTO sites (name, url, sort_order, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![s.name, s.url, s.sort_order, s.created_at],
+            "INSERT INTO sites (uuid, name, url, sort_order, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                s.name,
+                s.url,
+                s.sort_order,
+                s.created_at
+            ],
         )
         .map_err(dberr)?;
         let new_sid = tx.last_insert_rowid();
