@@ -43,7 +43,7 @@ pub fn run() {
             let log_dir = app_data.join("logs");
             let guard = logging::init(&log_dir);
             app.manage(LoggingGuard(guard));
-            tracing::info!("Prompt Hub starting up");
+            tracing::info!("PromptCast starting up");
 
             // 隐藏 dock 图标但允许激活（必须先于窗口设置）
             crate::platform::init_app_chrome();

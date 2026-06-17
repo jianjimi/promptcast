@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Prompt Hub",
+  "productName": "PromptCast",
   "version": "0.1.0",
   "identifier": "com.xiao.promptmanager",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "drawer",
-        "title": "Prompt Hub",
+        "title": "PromptCast",
         "url": "index.html#/drawer",
         "width": 400,
         "height": 720,
@@ -31,7 +31,7 @@
       },
       {
         "label": "editor",
-        "title": "编辑 · Prompt Hub",
+        "title": "编辑 · PromptCast",
         "url": "index.html#/editor",
         "width": 600,
         "height": 560,
@@ -41,7 +41,7 @@
       },
       {
         "label": "preview",
-        "title": "预览 · Prompt Hub",
+        "title": "预览 · PromptCast",
         "url": "index.html#/preview",
         "width": 540,
         "height": 640,
@@ -51,7 +51,7 @@
       },
       {
         "label": "settings",
-        "title": "设置 · Prompt Hub",
+        "title": "设置 · PromptCast",
         "url": "index.html#/settings",
         "width": 680,
         "height": 560,
@@ -68,7 +68,7 @@
     "active": true,
     "targets": "all",
     "category": "Productivity",
-    "shortDescription": "Prompt Hub — 提示词管理与一键注入",
+    "shortDescription": "PromptCast — 提示词管理与一键注入",
     "longDescription": "跨平台桌面提示词管理工具：全局快捷键唤起、模糊搜索、分类标签、一键注入到任何输入框。",
     "copyright": "Copyright © 2026 xiao",
     "icon": [

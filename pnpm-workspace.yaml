@@ -1,2 +1,4 @@
-allowBuilds:
-  esbuild: true
+# pnpm 10+ 在此声明允许执行 postinstall 构建脚本的依赖。
+# （之前误用的 `allowBuilds:` 不是有效键；正确键是 onlyBuiltDependencies。）
+onlyBuiltDependencies:
+  - esbuild

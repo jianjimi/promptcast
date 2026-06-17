@@ -38,6 +38,15 @@ export default defineComponent({
       return Math.max(0, this.chips.findIndex((c) => c.key === this.ui.activeChipKey));
     },
   },
+  watch: {
+    // 删除当前筛选的文件夹/标签后，对应 chip 消失：把选中回退到「全部」，
+    // 否则列表会基于已删 id 过滤成空、高亮也对不上。
+    chips(list: Chip[]) {
+      if (!list.find((c) => c.key === this.ui.activeChipKey)) {
+        this.ui.activeChipKey = "all";
+      }
+    },
+  },
   mounted() {
     document.addEventListener("keydown", this.onKey, true);
   },
@@ -50,7 +59,7 @@ export default defineComponent({
       // Tab 仅在 chip 间循环；如果焦点在输入框 / textarea 内仍允许
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
-      if (tag === "TEXTAREA") return; // 编辑窗别拦
+      if (tag === "TEXTAREA" || tag === "INPUT") return; // 输入框里 Tab 不拦截
       e.preventDefault();
       const len = this.chips.length;
       if (len === 0) return;

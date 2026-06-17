@@ -59,16 +59,19 @@ export function installGlobalErrorHandlers(): void {
       stack: r?.stack,
     });
   });
-  // 全局点击日志 — 帮助排查"按钮没反应"
-  window.addEventListener("click", (e) => {
-    const t = e.target as HTMLElement | null;
-    if (!t) return;
-    const tag = t.tagName;
-    const cls = t.className && typeof t.className === "string" ? t.className.slice(0, 80) : "";
-    log.debug(`click ${tag} class="${cls}"`);
-  }, true);
-  // 键盘事件日志（仅记 keydown 的 key 名，调试焦点用）
-  window.addEventListener("keydown", (e) => {
-    log.debug(`keydown key=${e.key} cmd=${e.metaKey} ctrl=${e.ctrlKey} shift=${e.shiftKey}`);
-  }, true);
+  // 调试用的全局点击/键盘日志仅在开发构建启用：
+  // 生产里它会把每次按键（含可打印字符）经 IPC 明文写进日志文件，属隐私泄露。
+  if (import.meta.env.DEV) {
+    window.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const tag = t.tagName;
+      const cls = t.className && typeof t.className === "string" ? t.className.slice(0, 80) : "";
+      log.debug(`click ${tag} class="${cls}"`);
+    }, true);
+    window.addEventListener("keydown", (e) => {
+      // 只记修饰键状态，不记可打印字符本身。
+      log.debug(`keydown key=${e.key.length === 1 ? "·" : e.key} cmd=${e.metaKey} ctrl=${e.ctrlKey} shift=${e.shiftKey}`);
+    }, true);
+  }
 }

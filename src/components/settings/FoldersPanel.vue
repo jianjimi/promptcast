@@ -32,9 +32,12 @@ export default defineComponent({
       this.editingValue = name;
     },
     async commitEdit(id: number) {
+      // Enter 会先清空 editingId、移除 input，从而合成一次 blur 再调本方法；
+      // 这里先判重再同步清状态，避免重复 rename + 重复 reload。
+      if (this.editingId !== id) return;
       const v = this.editingValue.trim();
-      if (v) await this.folders.rename(id, v);
       this.editingId = null;
+      if (v) await this.folders.rename(id, v);
     },
     async remove(id: number) {
       if (!confirm("删除这个分类？里面的提示词会变为未分类。")) return;

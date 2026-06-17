@@ -67,7 +67,7 @@ export default defineComponent({
     <div class="title-row">
       <div class="brand">
         <Sparkle :size="14" class="brand-ico" />
-        <span class="name">Prompt Hub</span>
+        <span class="name">PromptCast</span>
       </div>
       <div class="actions">
         <button

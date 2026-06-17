@@ -38,6 +38,7 @@ import { useTagsStore } from "../stores/tags";
 import { useSitesStore } from "../stores/sites";
 import { isMac } from "../utils/format";
 import { log } from "../utils/logger";
+import { getVersion } from "@tauri-apps/api/app";
 import type { ThemeMode } from "../types/settings";
 
 type TabKey =
@@ -64,12 +65,13 @@ export default defineComponent({
       accessibilityOk: true,
       isMacOS: isMac(),
       logsPath: "",
+      appVer: "",
       unlisteners: [] as UnlistenFn[],
     };
   },
   computed: {
     settings() { return useSettingsStore(); },
-    appVersion(): string { return "0.1.0"; },
+    appVersion(): string { return this.appVer || "…"; },
     navItems(): NavItem[] {
       return [
         { key: "general", label: "常规", icon: Sliders },
@@ -90,6 +92,7 @@ export default defineComponent({
     this.hotkeyDraft = this.settings.data.hotkey ?? "";
     this.accessibilityOk = await permissionsCheckAccessibility();
     try { this.logsPath = await logDir(); } catch { /* */ }
+    try { this.appVer = await getVersion(); } catch { /* */ }
 
     this.unlisteners.push(
       await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
@@ -330,7 +333,7 @@ export default defineComponent({
             </div>
             <div v-if="!accessibilityOk && isMacOS" class="hint">
               点下面按钮 → 系统会弹出引导窗 → 在「辅助功能」里把
-              <b>prompt-manager</b> 加入并勾选 → 重启应用使其生效。
+              <b>PromptCast</b>（开发模式下可能显示为 prompt-manager）加入并勾选 → 重启应用使其生效。
             </div>
             <div class="row">
               <span class="spacer" />
@@ -361,7 +364,7 @@ export default defineComponent({
           <div class="card">
             <div class="row">
               <div>
-                <div class="title">Prompt Hub</div>
+                <div class="title">PromptCast</div>
                 <div class="sub">v{{ appVersion }} · MIT License</div>
               </div>
             </div>

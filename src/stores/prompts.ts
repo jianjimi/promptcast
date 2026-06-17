@@ -51,6 +51,9 @@ export const usePromptsStore = defineStore("prompts", {
     },
     async setSort(mode: SortMode): Promise<void> {
       this.sortMode = mode;
+      // 持久化到设置，重启后保留（之前选了不生效）。
+      const { useSettingsStore } = await import("./settings");
+      await useSettingsStore().set("sort_mode", mode);
       await this.loadAll();
     },
     async create(draft: PromptDraft): Promise<Prompt> {

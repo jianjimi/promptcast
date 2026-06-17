@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use scraper::{Html, Selector};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use crate::events;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
@@ -15,6 +15,42 @@ use url::Url;
 use crate::db::{self, DbState};
 use crate::error::{AppError, AppResult};
 use crate::models::site::Site;
+
+const MAX_FAVICON: u64 = 512 * 1024; // favicon 最大 512KB
+const MAX_HTML: u64 = 1024 * 1024; // 主页 HTML 最多读 1MB
+
+/// 规范化用户输入的网址：无 scheme 则补 https://；只放行 http/https。
+fn normalize_url(raw: &str) -> AppResult<String> {
+    let raw = raw.trim();
+    let candidate = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("https://{raw}")
+    };
+    let parsed = Url::parse(&candidate)
+        .map_err(|e| AppError::InvalidInput(format!("无效网址: {e}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::InvalidInput("仅支持 http/https 链接".into()));
+    }
+    Ok(candidate)
+}
+
+/// 限长读取响应体，避免恶意/超大资源把内存撑爆。超 Content-Length 直接拒。
+fn read_capped(resp: reqwest::blocking::Response, max: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    if let Some(len) = resp.content_length() {
+        if len > max {
+            return None;
+        }
+    }
+    let mut buf = Vec::new();
+    resp.take(max).read_to_end(&mut buf).ok()?;
+    if buf.is_empty() {
+        None
+    } else {
+        Some(buf)
+    }
+}
 
 #[tauri::command]
 pub fn sites_list(db: State<'_, DbState>) -> AppResult<Vec<Site>> {
@@ -29,22 +65,30 @@ pub fn sites_create(
     name: String,
     url: String,
 ) -> AppResult<Site> {
+    let url = normalize_url(&url)?;
     let site = {
         let conn = db.0.lock();
         db::sites::create(&conn, &name, &url)?
     };
     tracing::info!(id = site.id, url = %site.url, "site created");
-    // 同步抓一次 favicon。失败不影响 site 已创建。
-    let final_site = if let Some((bytes, mime)) = fetch_favicon(&site.url) {
-        let conn = db.0.lock();
-        let _ = db::sites::set_favicon(&conn, site.id, Some(&bytes), Some(&mime));
-        db::sites::get(&conn, site.id)?
-    } else {
-        tracing::warn!(url = %site.url, "favicon fetch failed");
-        site
-    };
     events::emit_sites_changed(&app);
-    Ok(final_site)
+
+    // favicon 后台抓取，不阻塞 UI（慢/无响应的站点不会卡住「添加」）。
+    let app2 = app.clone();
+    let site_id = site.id;
+    let site_url = site.url.clone();
+    std::thread::spawn(move || {
+        if let Some((bytes, mime)) = fetch_favicon(&site_url) {
+            if let Some(state) = app2.try_state::<DbState>() {
+                let conn = state.0.lock();
+                let _ = db::sites::set_favicon(&conn, site_id, Some(&bytes), Some(&mime));
+            }
+            events::emit_sites_changed(&app2);
+        } else {
+            tracing::warn!(url = %site_url, "favicon fetch failed");
+        }
+    });
+    Ok(site)
 }
 
 #[tauri::command]
@@ -55,6 +99,7 @@ pub fn sites_update(
     name: String,
     url: String,
 ) -> AppResult<Site> {
+    let url = normalize_url(&url)?;
     let s = {
         let conn = db.0.lock();
         db::sites::update(&conn, id, &name, &url)?
@@ -125,6 +170,14 @@ pub fn sites_open(
         let conn = db.0.lock();
         db::sites::get(&conn, id)?.url
     };
+    // 防御：只用系统浏览器打开 http/https，挡住 file:// 等被导入数据植入的危险 scheme。
+    let parsed = Url::parse(&url).map_err(|e| AppError::InvalidInput(format!("无效网址: {e}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::InvalidInput(format!(
+            "仅支持 http/https，拒绝打开: {}",
+            parsed.scheme()
+        )));
+    }
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| AppError::Internal(e.to_string()))
@@ -162,18 +215,17 @@ fn fetch_favicon(site_url: &str) -> Option<(Vec<u8>, String)> {
     let ico_url = format!("{origin}/favicon.ico");
     if let Ok(resp) = cli.get(&ico_url).send() {
         if resp.status().is_success() {
-            if let Ok(bytes) = resp.bytes() {
-                if !bytes.is_empty() {
-                    let mime = guess_mime(&bytes, &ico_url).to_string();
-                    return Some((bytes.to_vec(), mime));
-                }
+            if let Some(bytes) = read_capped(resp, MAX_FAVICON) {
+                let mime = guess_mime(&bytes, &ico_url).to_string();
+                return Some((bytes, mime));
             }
         }
     }
 
     // 2) 解析主页 <link rel="icon">
     let resp = cli.get(&origin).send().ok()?;
-    let html = resp.text().ok()?;
+    let html_bytes = read_capped(resp, MAX_HTML)?;
+    let html = String::from_utf8_lossy(&html_bytes);
     let doc = Html::parse_document(&html);
     let sel = Selector::parse(r#"link[rel*="icon"]"#).ok()?;
     let mut href: Option<String> = None;
@@ -187,8 +239,7 @@ fn fetch_favicon(site_url: &str) -> Option<(Vec<u8>, String)> {
     let abs = parsed.join(&href).ok()?.to_string();
     let resp = cli.get(&abs).send().ok()?;
     if !resp.status().is_success() { return None; }
-    let bytes = resp.bytes().ok()?;
-    if bytes.is_empty() { return None; }
+    let bytes = read_capped(resp, MAX_FAVICON)?;
     let mime = guess_mime(&bytes, &abs).to_string();
-    Some((bytes.to_vec(), mime))
+    Some((bytes, mime))
 }

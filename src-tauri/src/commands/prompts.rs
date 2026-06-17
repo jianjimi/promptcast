@@ -96,7 +96,12 @@ pub fn prompts_toggle_pin(
 }
 
 #[tauri::command]
-pub fn prompts_record_use(db: State<'_, DbState>, id: i64) -> AppResult<()> {
-    let conn = db.0.lock();
-    db::prompts::record_use(&conn, id)
+pub fn prompts_record_use(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
+    {
+        let conn = db.0.lock();
+        db::prompts::record_use(&conn, id)?;
+    }
+    // 通知刷新：default sort=recent_used 时，刚用过的条目应跳到列表顶部。
+    events::emit_prompts_changed(&app);
+    Ok(())
 }

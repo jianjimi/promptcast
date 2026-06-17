@@ -139,13 +139,15 @@ export default defineComponent({
   },
   async mounted() {
     log.info("DrawerView mounted");
+    // 先加载设置，恢复持久化的排序，再拉列表（否则总是回到「最近使用」）。
+    await this.settings.loadAll();
+    this.prompts.sortMode = this.settings.data.sort_mode;
     await Promise.all([
-      this.settings.loadAll(),
       this.folders.loadAll(),
       this.tags.loadAll(),
       this.sites().loadAll(),
       this.prompts.loadAll(),
-      this.clip.loadAll(),
+      this.clip.loadAll(this.settings.data.clipboard_history_limit),
     ]);
     applyPersistedTheme(this.settings.data.theme);
     document.addEventListener("keydown", this.onKey);
