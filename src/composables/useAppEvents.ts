@@ -11,6 +11,7 @@ export const EVT_SITES_CHANGED = "sites-changed";
 export const EVT_SETTINGS_CHANGED = "settings-changed";
 export const EVT_THEME_CHANGED = "theme-changed";
 export const EVT_CLIPBOARD_CHANGED = "clipboard-changed";
+export const EVT_SYNC_STATUS_CHANGED = "sync-status-changed";
 
 export async function listenAppEvent<T = unknown>(
   name: string,

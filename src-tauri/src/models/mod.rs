@@ -6,4 +6,5 @@ pub mod folder;
 pub mod prompt;
 pub mod settings;
 pub mod site;
+pub mod sync;
 pub mod tag;

@@ -45,6 +45,21 @@ fn write_value<T: serde::Serialize>(conn: &Connection, key: &str, val: &T) -> Ap
     Ok(())
 }
 
+/// 原始 key/value（不走 JSON 编码）。给 sync 服务器地址等内部配置用 —— 这些 key 不在 KEYS 里，
+/// 不进强类型 Settings、不泄漏到前端设置页。
+pub fn get_raw(conn: &Connection, key: &str) -> AppResult<Option<String>> {
+    read_string(conn, key)
+}
+pub fn set_raw(conn: &Connection, key: &str, value: &str) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )
+    .map_err(|e| AppError::Db(e.to_string()))?;
+    Ok(())
+}
+
 pub fn get_all(conn: &Connection) -> AppResult<Settings> {
     let mut s = Settings {
         hotkey: None,

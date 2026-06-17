@@ -38,3 +38,5 @@ export * from "./inject";
 export * from "./window";
 export * from "./data";
 export * from "./clipboard";
+export * from "./auth";
+export * from "./sync";

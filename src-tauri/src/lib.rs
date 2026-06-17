@@ -6,6 +6,7 @@ mod events;
 mod logging;
 mod models;
 mod platform;
+mod sync;
 
 use parking_lot::Mutex;
 use tauri::menu::MenuBuilder;
@@ -58,6 +59,21 @@ pub fn run() {
             app.manage(state);
             app.manage(LastFrontmost(Mutex::new(FrontmostTarget::default())));
             app.manage(DrawerPinned(std::sync::atomic::AtomicBool::new(false)));
+            app.manage(crate::sync::SyncRuntime::default());
+            // 重启后恢复会话：钥匙串有 refresh ⇒ 已登录；email 从 settings 取回供 UI 显示。
+            // access token 不落盘，首次同步会用 refresh 换取。
+            if crate::sync::load_refresh().is_some() {
+                let db = app.state::<DbState>();
+                let email = {
+                    let conn = db.0.lock();
+                    crate::db::settings::get_raw(&conn, "sync_user_email")
+                        .ok()
+                        .flatten()
+                };
+                if let Some(email) = email.filter(|e| !e.is_empty()) {
+                    *app.state::<crate::sync::SyncRuntime>().email.lock() = Some(email);
+                }
+            }
 
             // 列出所有从 tauri.conf.json 预声明的窗口（用于确认 conf 是否生效）
             let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
@@ -78,6 +94,10 @@ pub fn run() {
                 drawer.on_window_event(move |event| match event {
                     tauri::WindowEvent::Focused(true) => {
                         ever_focused.store(true, std::sync::atomic::Ordering::Relaxed);
+                        // 获焦时触发一次同步（拉取别的设备的更新）。
+                        if let Some(rt) = app_h.try_state::<crate::sync::SyncRuntime>() {
+                            rt.wake.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
                     tauri::WindowEvent::Focused(false) => {
                         // 还没真正聚焦过（启动阶段那次失焦）不隐藏。
@@ -226,6 +246,12 @@ pub fn run() {
                 std::thread::spawn(move || clipboard_monitor_loop(handle));
             }
 
+            // ---- 同步循环线程：登录+开启时，定时/获焦/手动触发跑一拍 ----
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || sync_loop(handle));
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -276,6 +302,15 @@ pub fn run() {
             register_hotkey_cmd,
             unregister_hotkey_cmd,
             backend_ready,
+            commands::auth::auth_register,
+            commands::auth::auth_login,
+            commands::auth::auth_logout,
+            commands::auth::auth_status,
+            commands::sync::sync_status,
+            commands::sync::sync_set_enabled,
+            commands::sync::sync_now,
+            commands::sync::sync_get_server_url,
+            commands::sync::sync_set_server_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -304,6 +339,46 @@ fn unregister_hotkey_cmd(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn backend_ready(app: tauri::AppHandle) -> bool {
     app.try_state::<DbState>().is_some()
+}
+
+/// 同步循环（后台线程）。登录 + 开启时，每 ~60s / 获焦 / 手动触发跑一拍。
+/// 网络/认证失败只记日志、emit error 状态，下拍重试（保游标、不丢 dirty）。
+fn sync_loop(app: tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+    std::thread::sleep(Duration::from_secs(2));
+    let mut last_tick = Instant::now();
+    tracing::info!("sync loop started");
+    loop {
+        std::thread::sleep(Duration::from_millis(500));
+        let rt = match app.try_state::<crate::sync::SyncRuntime>() {
+            Some(r) => r,
+            None => continue,
+        };
+        let woke = rt.wake.swap(false, Ordering::Relaxed);
+        let periodic = last_tick.elapsed() >= Duration::from_secs(60);
+        if !woke && !periodic {
+            continue;
+        }
+        last_tick = Instant::now();
+        if rt.busy.swap(true, Ordering::Relaxed) {
+            continue; // 已在跑
+        }
+        crate::sync::emit_status(&app, "syncing", None);
+        match crate::sync::engine::sync_once(&app) {
+            Ok(o) => {
+                if o.pushed > 0 || o.pulled > 0 {
+                    tracing::info!(pushed = o.pushed, pulled = o.pulled, "sync ok");
+                }
+                crate::sync::emit_status(&app, "idle", None);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "sync cycle failed");
+                crate::sync::emit_status(&app, "error", Some(e.to_string()));
+            }
+        }
+        rt.busy.store(false, Ordering::Relaxed);
+    }
 }
 
 /// 剪贴板历史监听循环（后台线程）。macOS 无变化事件，靠轮询 changeCount；

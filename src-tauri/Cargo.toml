@@ -28,10 +28,11 @@ parking_lot = "0.12"
 uuid = { version = "1", features = ["v4"] }
 arboard = "3"
 enigo = "0.2"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
 scraper = "0.20"
 url = "2"
 base64 = "0.22"
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"

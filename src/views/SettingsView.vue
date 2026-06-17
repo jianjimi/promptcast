@@ -8,6 +8,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   Sliders, Keyboard, Palette, FolderTree, Globe, Database,
   ShieldCheck, Info, X, Settings as SettingsIcon, FileText,
+  Cloud, RefreshCw, LogOut,
 } from "lucide-vue-next";
 
 import HotkeyRecorder from "../components/settings/HotkeyRecorder.vue";
@@ -32,17 +33,21 @@ import {
   listenAppEvent,
   EVT_THEME_CHANGED, EVT_SETTINGS_CHANGED,
   EVT_FOLDERS_CHANGED, EVT_TAGS_CHANGED, EVT_SITES_CHANGED,
+  EVT_SYNC_STATUS_CHANGED,
 } from "../composables/useAppEvents";
 import { useFoldersStore } from "../stores/folders";
 import { useTagsStore } from "../stores/tags";
 import { useSitesStore } from "../stores/sites";
-import { isMac } from "../utils/format";
+import { useAuthStore } from "../stores/auth";
+import { useSyncStore } from "../stores/sync";
+import type { SyncStatus } from "../types/sync";
+import { isMac, relativeTime } from "../utils/format";
 import { log } from "../utils/logger";
 import { getVersion } from "@tauri-apps/api/app";
 import type { ThemeMode } from "../types/settings";
 
 type TabKey =
-  | "general" | "hotkey" | "theme" | "folders"
+  | "general" | "account" | "hotkey" | "theme" | "folders"
   | "sites" | "data" | "permissions" | "about";
 
 interface NavItem {
@@ -57,6 +62,7 @@ export default defineComponent({
     HotkeyRecorder, FoldersPanel, SitesPanel, DataPanel, BaseToast,
     Sliders, Keyboard, Palette, FolderTree, Globe, Database,
     ShieldCheck, Info, X, SettingsIcon, FileText,
+    Cloud, RefreshCw, LogOut,
   },
   data() {
     return {
@@ -66,15 +72,28 @@ export default defineComponent({
       isMacOS: isMac(),
       logsPath: "",
       appVer: "",
+      // 账户 / 同步
+      emailDraft: "",
+      passwordDraft: "",
+      serverDraft: "",
+      authBusy: false,
+      authErr: "",
       unlisteners: [] as UnlistenFn[],
     };
   },
   computed: {
     settings() { return useSettingsStore(); },
+    auth() { return useAuthStore(); },
+    sync() { return useSyncStore(); },
     appVersion(): string { return this.appVer || "…"; },
+    lastSyncText(): string {
+      const t = this.sync.status.last_sync_at;
+      return t ? relativeTime(t) : "尚未同步";
+    },
     navItems(): NavItem[] {
       return [
         { key: "general", label: "常规", icon: Sliders },
+        { key: "account", label: "账户同步", icon: Cloud },
         { key: "hotkey", label: "快捷键", icon: Keyboard },
         { key: "theme", label: "主题", icon: Palette },
         { key: "folders", label: "分类管理", icon: FolderTree },
@@ -95,12 +114,20 @@ export default defineComponent({
     try { this.logsPath = await logDir(); } catch { /* */ }
     try { this.appVer = await getVersion(); } catch { /* */ }
 
+    try { await this.auth.load(); } catch { /* */ }
+    try { await this.sync.load(); this.serverDraft = this.sync.serverUrl; } catch { /* */ }
+
     this.unlisteners.push(
       await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
       await listenAppEvent(EVT_SETTINGS_CHANGED, () => this.settings.loadAll()),
       await listenAppEvent(EVT_FOLDERS_CHANGED, () => useFoldersStore().loadAll()),
       await listenAppEvent(EVT_TAGS_CHANGED, () => useTagsStore().loadAll()),
       await listenAppEvent(EVT_SITES_CHANGED, () => useSitesStore().loadAll()),
+      await listenAppEvent<SyncStatus>(EVT_SYNC_STATUS_CHANGED, (s) => {
+        this.sync.apply(s);
+        this.auth.loggedIn = s.logged_in;
+        this.auth.email = s.email;
+      }),
     );
   },
   beforeUnmount() {
@@ -153,6 +180,42 @@ export default defineComponent({
       } catch (e) {
         log.error(`open logs dir failed: ${e}`);
       }
+    },
+    // ---- 账户 / 同步 ----
+    async saveServer() {
+      try { await this.sync.setServerUrl(this.serverDraft.trim()); }
+      catch (e) { this.authErr = `保存服务器地址失败: ${e}`; }
+    },
+    async doLogin() {
+      await this.authAction(() => this.auth.login(this.emailDraft.trim(), this.passwordDraft));
+    },
+    async doRegister() {
+      await this.authAction(() => this.auth.register(this.emailDraft.trim(), this.passwordDraft));
+    },
+    async authAction(fn: () => Promise<void>) {
+      this.authErr = "";
+      this.authBusy = true;
+      try {
+        await this.saveServer();
+        await fn();
+        this.passwordDraft = "";
+        await this.sync.load();
+      } catch (e) {
+        this.authErr = String(e);
+      } finally {
+        this.authBusy = false;
+      }
+    },
+    async doLogout() {
+      try { await this.auth.logout(); await this.sync.load(); }
+      catch (e) { this.authErr = String(e); }
+    },
+    async toggleSync(on: boolean) {
+      try { await this.sync.setEnabled(on); await this.sync.load(); }
+      catch (e) { this.authErr = String(e); }
+    },
+    async doSyncNow() {
+      try { await this.sync.now(); } catch (e) { this.authErr = String(e); }
     },
   },
 });
@@ -255,6 +318,87 @@ export default defineComponent({
               </select>
             </div>
           </div>
+        </section>
+
+        <!-- 账户 / 同步 -->
+        <section v-if="tab === 'account'" class="panel">
+          <h3>账户与多设备同步</h3>
+          <p class="lead">
+            登录后，提示词 / 文件夹 / 标签 / 网站会在你的多台设备间自动同步（离线优先，联网即同步）。
+            设置、剪贴板历史保持本地。
+          </p>
+
+          <!-- 未登录 -->
+          <div v-if="!auth.loggedIn" class="card">
+            <label class="field">
+              <span class="flabel">服务器地址</span>
+              <input v-model="serverDraft" class="inp" placeholder="http://localhost:3000" />
+            </label>
+            <label class="field">
+              <span class="flabel">邮箱</span>
+              <input v-model="emailDraft" class="inp" type="email" placeholder="you@example.com"
+                autocomplete="username" />
+            </label>
+            <label class="field">
+              <span class="flabel">密码</span>
+              <input v-model="passwordDraft" class="inp" type="password" placeholder="至少 8 位"
+                autocomplete="current-password" @keydown.enter="doLogin" />
+            </label>
+            <div v-if="authErr" class="err">{{ authErr }}</div>
+            <div class="row">
+              <span class="spacer" />
+              <button class="ghost" :disabled="authBusy" @click="doRegister">注册</button>
+              <button class="primary" :disabled="authBusy" @click="doLogin">
+                {{ authBusy ? "请稍候…" : "登录" }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 已登录 -->
+          <template v-else>
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="title">{{ auth.email || "已登录" }}</div>
+                  <div class="sub">
+                    状态：{{ sync.status.state }} · 上次同步：{{ lastSyncText }}
+                    <template v-if="sync.status.pending > 0"> · 待推送 {{ sync.status.pending }}</template>
+                  </div>
+                  <div v-if="sync.status.message" class="sub" style="color:var(--danger)">
+                    {{ sync.status.message }}
+                  </div>
+                </div>
+                <span class="spacer" />
+                <button class="ghost danger" @click="doLogout">
+                  <LogOut :size="13" /> 登出
+                </button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="title">启用同步</div>
+                  <div class="sub">关闭后本地照常用，只是不再上传/下载。</div>
+                </div>
+                <span class="spacer" />
+                <button class="ghost" @click="doSyncNow">
+                  <RefreshCw :size="13" /> 立即同步
+                </button>
+                <label class="switch">
+                  <input type="checkbox" :checked="sync.status.enabled"
+                    @change="(e) => toggleSync((e.target as HTMLInputElement).checked)" />
+                  <span />
+                </label>
+              </div>
+              <label class="field">
+                <span class="flabel">服务器地址</span>
+                <div class="row">
+                  <input v-model="serverDraft" class="inp" placeholder="http://localhost:3000" />
+                  <button class="ghost" @click="saveServer">保存</button>
+                </div>
+              </label>
+            </div>
+          </template>
         </section>
 
         <!-- 快捷键 -->
@@ -542,6 +686,29 @@ export default defineComponent({
 .status { font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
 .status.ok { background: var(--accent-soft); color: var(--success); }
 .status.bad { background: var(--accent-soft); color: var(--danger); }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.flabel { font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.inp {
+  flex: 1;
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+.inp:focus { border-color: var(--accent); }
+.err {
+  font-size: 11px;
+  color: var(--danger);
+  background: var(--accent-soft);
+  padding: 6px 10px;
+  border-radius: 6px;
+  word-break: break-all;
+}
+.ghost.danger { color: var(--danger); border-color: transparent; }
 .hint {
   font-size: 11px;
   padding: 8px 10px;

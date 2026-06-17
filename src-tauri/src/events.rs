@@ -9,6 +9,7 @@ pub const SITES_CHANGED: &str = "sites-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const THEME_CHANGED: &str = "theme-changed";
 pub const CLIPBOARD_CHANGED: &str = "clipboard-changed";
+pub const SYNC_STATUS_CHANGED: &str = "sync-status-changed";
 
 use tauri::{AppHandle, Emitter};
 
@@ -32,4 +33,7 @@ pub fn emit_theme_changed(app: &AppHandle, theme: &str) {
 }
 pub fn emit_clipboard_changed(app: &AppHandle) {
     let _ = app.emit(CLIPBOARD_CHANGED, ());
+}
+pub fn emit_sync_status_changed<S: serde::Serialize + Clone>(app: &AppHandle, status: S) {
+    let _ = app.emit(SYNC_STATUS_CHANGED, status);
 }
