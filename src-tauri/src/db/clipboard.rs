@@ -3,8 +3,8 @@
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use crate::error::{AppError, AppResult};
 use super::now_ms;
+use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -88,4 +88,48 @@ pub fn clear(conn: &Connection) -> AppResult<()> {
     conn.execute("DELETE FROM clipboard_history", [])
         .map_err(|e| AppError::Db(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::memory_conn;
+
+    #[test]
+    fn insert_dedupes_consecutive_and_lists_newest_first() {
+        let c = memory_conn();
+        assert!(insert(&c, "a", 0).unwrap());
+        assert!(
+            !insert(&c, "a", 0).unwrap(),
+            "consecutive duplicate should be skipped"
+        );
+        assert!(insert(&c, "b", 0).unwrap());
+        let items = list(&c, 100).unwrap();
+        let contents: Vec<&str> = items.iter().map(|e| e.content.as_str()).collect();
+        assert_eq!(contents, vec!["b", "a"]);
+        assert_eq!(items[0].char_count, 1);
+    }
+
+    #[test]
+    fn insert_trims_to_limit() {
+        let c = memory_conn();
+        for i in 0..10 {
+            insert(&c, &format!("item{i}"), 3).unwrap();
+        }
+        let items = list(&c, 100).unwrap();
+        assert_eq!(items.len(), 3, "should keep only the most recent 3");
+        assert_eq!(items[0].content, "item9");
+    }
+
+    #[test]
+    fn delete_and_clear() {
+        let c = memory_conn();
+        insert(&c, "a", 0).unwrap();
+        insert(&c, "b", 0).unwrap();
+        let id = list(&c, 100).unwrap()[0].id;
+        delete(&c, id).unwrap();
+        assert_eq!(list(&c, 100).unwrap().len(), 1);
+        clear(&c).unwrap();
+        assert!(list(&c, 100).unwrap().is_empty());
+    }
 }

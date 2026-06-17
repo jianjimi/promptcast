@@ -21,9 +21,9 @@ fn show_singleton(
     label: &str,
     target_hash: Option<&str>,
 ) -> AppResult<WindowInfo> {
-    let win = app
-        .get_webview_window(label)
-        .ok_or_else(|| AppError::NotFound(format!("window '{label}' not declared in tauri.conf")))?;
+    let win = app.get_webview_window(label).ok_or_else(|| {
+        AppError::NotFound(format!("window '{label}' not declared in tauri.conf"))
+    })?;
 
     if let Some(hash) = target_hash {
         // hash 用 JSON 字符串字面量转义，避免反斜杠 / 引号注入。

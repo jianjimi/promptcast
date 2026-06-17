@@ -12,8 +12,8 @@
 //          c) drawer.makeKeyAndOrderFront → 键盘进抽屉
 //       3. 注入时：hide drawer → 用 NSRunningApplication 激活之前那个 PID →
 //          sleep → enigo 模拟 Cmd+V。
-use objc2::{class, msg_send};
 use objc2::runtime::AnyObject;
+use objc2::{class, msg_send};
 use tauri::WebviewWindow;
 
 const NS_WINDOW_STYLE_MASK_BORDERLESS: u64 = 0;
@@ -47,7 +47,9 @@ pub fn set_accessory_policy() {
 pub fn activate_self() {
     unsafe {
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-        if app.is_null() { return; }
+        if app.is_null() {
+            return;
+        }
         let _: () = msg_send![
             app,
             activateIgnoringOtherApps: true
@@ -94,9 +96,14 @@ pub fn apply_panel_style(window: &WebviewWindow) {
 pub fn make_key_and_order_front(window: &WebviewWindow) {
     let ns_window: *mut AnyObject = match window.ns_window() {
         Ok(h) => h as *mut AnyObject,
-        Err(e) => { tracing::warn!("ns_window err: {e}"); return; }
+        Err(e) => {
+            tracing::warn!("ns_window err: {e}");
+            return;
+        }
     };
-    if ns_window.is_null() { return; }
+    if ns_window.is_null() {
+        return;
+    }
     unsafe {
         let nil: *const AnyObject = std::ptr::null();
         let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];

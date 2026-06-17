@@ -7,9 +7,15 @@ use crate::models::prompt::SortMode;
 use crate::models::settings::{DefaultAction, Settings, ThemeMode};
 
 const KEYS: &[&str] = &[
-    "hotkey", "theme", "default_action", "pin_default",
-    "sort_mode", "auto_start", "accessibility_granted",
-    "clipboard_history_enabled", "clipboard_history_limit",
+    "hotkey",
+    "theme",
+    "default_action",
+    "pin_default",
+    "sort_mode",
+    "auto_start",
+    "accessibility_granted",
+    "clipboard_history_enabled",
+    "clipboard_history_limit",
 ];
 
 fn read_string(conn: &Connection, key: &str) -> AppResult<Option<String>> {
@@ -73,7 +79,9 @@ pub fn get_all(conn: &Connection) -> AppResult<Settings> {
 /// 通用 set：前端传 key + JSON value（Value）。
 pub fn set(conn: &Connection, key: &str, value: &Value) -> AppResult<()> {
     if !KEYS.contains(&key) {
-        return Err(AppError::InvalidInput(format!("unknown settings key: {key}")));
+        return Err(AppError::InvalidInput(format!(
+            "unknown settings key: {key}"
+        )));
     }
     write_value(conn, key, value)
 }

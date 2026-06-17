@@ -51,12 +51,14 @@ pub struct InjectResult {
 }
 
 fn read_clipboard() -> Option<String> {
-    arboard::Clipboard::new().ok().and_then(|mut cb| cb.get_text().ok())
+    arboard::Clipboard::new()
+        .ok()
+        .and_then(|mut cb| cb.get_text().ok())
 }
 
 fn write_clipboard(text: &str) -> AppResult<()> {
-    let mut cb = arboard::Clipboard::new()
-        .map_err(|e| AppError::Internal(format!("clipboard: {e}")))?;
+    let mut cb =
+        arboard::Clipboard::new().map_err(|e| AppError::Internal(format!("clipboard: {e}")))?;
     cb.set_text(text)
         .map_err(|e| AppError::Internal(format!("clipboard set: {e}")))?;
     Ok(())
@@ -100,7 +102,10 @@ fn wait_until_foreground(target_pid: Option<i32>, deadline: Duration) {
             }
         }
         if waited >= deadline {
-            tracing::warn!(?deadline, "target not frontmost before deadline; pasting anyway");
+            tracing::warn!(
+                ?deadline,
+                "target not frontmost before deadline; pasting anyway"
+            );
             break;
         }
         thread::sleep(step);
@@ -206,8 +211,8 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
         Key::Control
     };
     fn do_paste(modifier: Key) -> Result<(), String> {
-        let mut e = Enigo::new(&EnigoSettings::default())
-            .map_err(|err| format!("enigo init: {err}"))?;
+        let mut e =
+            Enigo::new(&EnigoSettings::default()).map_err(|err| format!("enigo init: {err}"))?;
         e.key(modifier, Direction::Press)
             .map_err(|err| format!("press: {err}"))?;
         // 'v' 出错也要继续释放修饰键；用 and 保留第一个错误。

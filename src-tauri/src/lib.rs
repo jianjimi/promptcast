@@ -1,10 +1,10 @@
 // lib.rs — Tauri 入口；保持薄。
+mod commands;
+mod db;
 mod error;
 mod events;
 mod logging;
 mod models;
-mod commands;
-mod db;
 mod platform;
 
 use parking_lot::Mutex;
@@ -44,10 +44,7 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            let app_data = app
-                .path()
-                .app_data_dir()
-                .expect("app_data_dir");
+            let app_data = app.path().app_data_dir().expect("app_data_dir");
             let log_dir = app_data.join("logs");
             let guard = logging::init(&log_dir);
             app.manage(LoggingGuard(guard));
@@ -63,11 +60,7 @@ pub fn run() {
             app.manage(DrawerPinned(std::sync::atomic::AtomicBool::new(false)));
 
             // 列出所有从 tauri.conf.json 预声明的窗口（用于确认 conf 是否生效）
-            let labels: Vec<String> = app
-                .webview_windows()
-                .keys()
-                .cloned()
-                .collect();
+            let labels: Vec<String> = app.webview_windows().keys().cloned().collect();
             tracing::info!(?labels, "webview windows at startup");
 
             if let Some(drawer) = app.get_webview_window("drawer") {
@@ -109,16 +102,16 @@ pub fn run() {
                         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                             api.prevent_close();
                             let _ = hide_target.hide();
-                            tracing::info!(label = hide_target.label(), "close intercepted -> hidden");
+                            tracing::info!(
+                                label = hide_target.label(),
+                                "close intercepted -> hidden"
+                            );
                         }
                     });
                 }
             }
 
-            let settings = crate::db::settings::get_all(
-                &app.state::<DbState>().0.lock(),
-            )
-            .ok();
+            let settings = crate::db::settings::get_all(&app.state::<DbState>().0.lock()).ok();
             if let Some(s) = settings {
                 if let Some(shortcut) = s.hotkey {
                     register_global_hotkey(app.handle(), &shortcut);
@@ -273,7 +266,10 @@ fn clipboard_monitor_loop(app: tauri::AppHandle) {
             Some(state) => {
                 let conn = state.0.lock();
                 match crate::db::settings::get_all(&conn) {
-                    Ok(s) => (s.clipboard_history_enabled, s.clipboard_history_limit as i64),
+                    Ok(s) => (
+                        s.clipboard_history_enabled,
+                        s.clipboard_history_limit as i64,
+                    ),
                     Err(_) => (true, 500),
                 }
             }
@@ -284,7 +280,10 @@ fn clipboard_monitor_loop(app: tauri::AppHandle) {
         }
 
         // 读剪贴板文本；非文本（图片/附件）get_text 失败 → 静默跳过。
-        let text = match arboard::Clipboard::new().ok().and_then(|mut c| c.get_text().ok()) {
+        let text = match arboard::Clipboard::new()
+            .ok()
+            .and_then(|mut c| c.get_text().ok())
+        {
             Some(t) => t,
             None => continue,
         };
@@ -340,7 +339,9 @@ fn register_global_hotkey(app: &tauri::AppHandle, shortcut: &str) {
     let res = app
         .global_shortcut()
         .on_shortcut(shortcut, move |_app, _sc, ev: ShortcutEvent| {
-            if ev.state() != ShortcutState::Pressed { return; }
+            if ev.state() != ShortcutState::Pressed {
+                return;
+            }
 
             let drawer = match app_clone.get_webview_window("drawer") {
                 Some(w) => w,

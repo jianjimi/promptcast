@@ -2,18 +2,18 @@
 //
 // 连接策略：单一 Connection + parking_lot::Mutex，按 Tauri State 注入。
 // MVP 数据规模 <100，单连接足够；后续若需要并发可换 r2d2 池。
-pub mod schema;
+pub mod clipboard;
+pub mod folders;
 pub mod migrations;
 pub mod prompts;
-pub mod folders;
-pub mod tags;
-pub mod sites;
+pub mod schema;
 pub mod settings;
-pub mod clipboard;
+pub mod sites;
+pub mod tags;
 
-use std::path::Path;
 use parking_lot::Mutex;
 use rusqlite::Connection;
+use std::path::Path;
 
 use crate::error::{AppError, AppResult};
 
@@ -42,4 +42,13 @@ impl DbState {
 
 pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+/// 测试专用：内存库 + 完整 schema（与生产同样开外键 + 迁移）。
+#[cfg(test)]
+pub fn memory_conn() -> Connection {
+    let conn = Connection::open_in_memory().expect("open :memory:");
+    conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+    migrations::migrate(&conn).expect("migrate");
+    conn
 }

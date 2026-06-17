@@ -13,11 +13,7 @@ pub fn folders_list(db: State<'_, DbState>) -> AppResult<Vec<Folder>> {
 }
 
 #[tauri::command]
-pub fn folders_create(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    name: String,
-) -> AppResult<Folder> {
+pub fn folders_create(app: AppHandle, db: State<'_, DbState>, name: String) -> AppResult<Folder> {
     let f = {
         let conn = db.0.lock();
         db::folders::create(&conn, &name)?
@@ -42,11 +38,7 @@ pub fn folders_rename(
 }
 
 #[tauri::command]
-pub fn folders_delete(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<()> {
+pub fn folders_delete(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     {
         let conn = db.0.lock();
         db::folders::delete(&conn, id)?;

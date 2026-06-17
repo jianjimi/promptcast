@@ -24,23 +24,18 @@ pub struct Snapshot {
     pub settings: serde_json::Map<String, Value>,
 }
 
-#[tauri::command]
-pub fn data_export_json(db: State<'_, DbState>) -> AppResult<String> {
-    let conn = db.0.lock();
-    let folders = db::folders::list(&conn)?;
-    let tags = db::tags::list(&conn)?;
-    let prompts = db::prompts::list(
-        &conn,
-        crate::models::prompt::SortMode::Created,
-    )?;
-    let sites = db::sites::list(&conn)?;
-    let settings_obj = db::settings::get_all(&conn)?;
-    let settings_value = serde_json::to_value(&settings_obj)?;
-    let settings = match settings_value {
+/// 把整库导出成 Snapshot（纯函数，便于测试 round-trip）。
+pub fn export_snapshot(conn: &rusqlite::Connection) -> AppResult<Snapshot> {
+    let folders = db::folders::list(conn)?;
+    let tags = db::tags::list(conn)?;
+    let prompts = db::prompts::list(conn, crate::models::prompt::SortMode::Created)?;
+    let sites = db::sites::list(conn)?;
+    let settings_obj = db::settings::get_all(conn)?;
+    let settings = match serde_json::to_value(&settings_obj)? {
         Value::Object(m) => m,
         _ => serde_json::Map::new(),
     };
-    let snap = Snapshot {
+    Ok(Snapshot {
         version: 1,
         exported_at: chrono::Utc::now().timestamp_millis(),
         folders,
@@ -48,7 +43,13 @@ pub fn data_export_json(db: State<'_, DbState>) -> AppResult<String> {
         prompts,
         sites,
         settings,
-    };
+    })
+}
+
+#[tauri::command]
+pub fn data_export_json(db: State<'_, DbState>) -> AppResult<String> {
+    let conn = db.0.lock();
+    let snap = export_snapshot(&conn)?;
     Ok(serde_json::to_string_pretty(&snap)?)
 }
 
@@ -74,25 +75,20 @@ fn parse_data_uri(uri: Option<&str>) -> Option<(Vec<u8>, String)> {
     Some((bytes, mime))
 }
 
-#[tauri::command]
-pub fn data_import_json(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    args: ImportArgs,
-) -> AppResult<ImportResult> {
-    let snap: Snapshot = serde_json::from_str(&args.json)?;
-    if snap.version != 1 {
-        return Err(AppError::InvalidInput(format!(
-            "unsupported snapshot version {}",
-            snap.version
-        )));
-    }
-    let mut conn = db.0.lock();
-    let tx = conn.transaction().map_err(|e| AppError::Db(e.to_string()))?;
+/// 把 Snapshot 写入库（id 重映射 + settings + favicon 还原）。返回新插入条数。
+/// 不在此 commit，便于命令层包事务、测试层直接驱动 round-trip。
+fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -> AppResult<u32> {
     let dberr = |e: rusqlite::Error| AppError::Db(e.to_string());
 
-    if args.mode == "replace" {
-        for t in ["prompt_tags", "prompts", "tags", "folders", "sites", "settings"] {
+    if replace {
+        for t in [
+            "prompt_tags",
+            "prompts",
+            "tags",
+            "folders",
+            "sites",
+            "settings",
+        ] {
             tx.execute(&format!("DELETE FROM {t}"), []).map_err(dberr)?;
         }
     }
@@ -103,7 +99,11 @@ pub fn data_import_json(
     let mut folder_map: HashMap<i64, i64> = HashMap::new();
     for f in &snap.folders {
         let existing: Option<i64> = tx
-            .query_row("SELECT id FROM folders WHERE name = ?1", params![f.name], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM folders WHERE name = ?1",
+                params![f.name],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(dberr)?;
         let new_id = match existing {
@@ -125,7 +125,11 @@ pub fn data_import_json(
     let mut tag_map: HashMap<i64, i64> = HashMap::new();
     for t in &snap.tags {
         let existing: Option<i64> = tx
-            .query_row("SELECT id FROM tags WHERE name = ?1", params![t.name], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM tags WHERE name = ?1",
+                params![t.name],
+                |r| r.get(0),
+            )
             .optional()
             .map_err(dberr)?;
         let new_id = match existing {
@@ -152,9 +156,15 @@ pub fn data_import_json(
               last_used_at, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                p.title, p.content, new_folder,
-                p.is_favorite as i64, p.is_pinned as i64,
-                p.use_count, p.last_used_at, p.created_at, p.updated_at,
+                p.title,
+                p.content,
+                new_folder,
+                p.is_favorite as i64,
+                p.is_pinned as i64,
+                p.use_count,
+                p.last_used_at,
+                p.created_at,
+                p.updated_at,
             ],
         )
         .map_err(dberr)?;
@@ -201,7 +211,28 @@ pub fn data_import_json(
         .map_err(dberr)?;
     }
 
-    tx.commit().map_err(dberr)?;
+    Ok(inserted)
+}
+
+#[tauri::command]
+pub fn data_import_json(
+    app: AppHandle,
+    db: State<'_, DbState>,
+    args: ImportArgs,
+) -> AppResult<ImportResult> {
+    let snap: Snapshot = serde_json::from_str(&args.json)?;
+    if snap.version != 1 {
+        return Err(AppError::InvalidInput(format!(
+            "unsupported snapshot version {}",
+            snap.version
+        )));
+    }
+    let mut conn = db.0.lock();
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Db(e.to_string()))?;
+    let inserted = import_snapshot(&tx, &snap, args.mode == "replace")?;
+    tx.commit().map_err(|e| AppError::Db(e.to_string()))?;
 
     // 通知所有窗口刷新导入后的数据。
     events::emit_prompts_changed(&app);
@@ -210,5 +241,90 @@ pub fn data_import_json(
     events::emit_sites_changed(&app);
     events::emit_settings_changed(&app, "*");
 
-    Ok(ImportResult { inserted, updated: 0 })
+    Ok(ImportResult {
+        inserted,
+        updated: 0,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{self, memory_conn};
+    use crate::models::prompt::PromptDraft;
+
+    #[test]
+    fn roundtrip_remaps_ids_and_restores_settings() {
+        // 源库：建文件夹 + 标签 + 带标签的 prompt + 站点 + 改两个设置。
+        let mut src = memory_conn();
+        let fid = db::folders::create(&src, "Work").unwrap().id;
+        let tid = db::tags::create(&src, "ai", None).unwrap().id;
+        db::prompts::create(
+            &mut src,
+            PromptDraft {
+                title: "p1".into(),
+                content: "c".into(),
+                folder_id: Some(fid),
+                tag_ids: vec![tid],
+            },
+        )
+        .unwrap();
+        db::settings::set(&src, "theme", &serde_json::json!("dark")).unwrap();
+        db::settings::set(&src, "sort_mode", &serde_json::json!("title")).unwrap();
+        let snap = export_snapshot(&src).unwrap();
+
+        // 目标库：先塞一条会与源 id 冲突的数据（旧 INSERT OR IGNORE 会丢源数据）。
+        let mut dst = memory_conn();
+        db::folders::create(&dst, "Existing").unwrap(); // 占用 folders.id=1
+        {
+            let tx = dst.transaction().unwrap();
+            import_snapshot(&tx, &snap, false).unwrap();
+            tx.commit().unwrap();
+        }
+
+        // 源 prompt 应被导入，且 folder/tag 关系经重映射后仍正确。
+        let prompts = db::prompts::list(&dst, crate::models::prompt::SortMode::Created).unwrap();
+        let imported = prompts
+            .iter()
+            .find(|p| p.title == "p1")
+            .expect("p1 imported despite id clash");
+        let folders = db::folders::list(&dst).unwrap();
+        let work = folders.iter().find(|f| f.name == "Work").unwrap();
+        assert_eq!(imported.folder_id, Some(work.id), "folder_id remapped");
+        assert_eq!(imported.tag_ids.len(), 1, "tag relation preserved");
+
+        // settings 应被还原（之前完全丢失）。
+        let s = db::settings::get_all(&dst).unwrap();
+        assert!(matches!(s.theme, crate::models::settings::ThemeMode::Dark));
+        assert!(matches!(
+            s.sort_mode,
+            crate::models::prompt::SortMode::Title
+        ));
+    }
+
+    #[test]
+    fn favicon_data_uri_roundtrips_to_blob() {
+        let src = memory_conn();
+        let sid = db::sites::create(&src, "Cnb", "https://cnb.cool")
+            .unwrap()
+            .id;
+        db::sites::set_favicon(&src, sid, Some(b"\x89PNGdata"), Some("image/png")).unwrap();
+        let snap = export_snapshot(&src).unwrap();
+        assert!(snap.sites[0].favicon_data_uri.is_some());
+
+        let mut dst = memory_conn();
+        {
+            let tx = dst.transaction().unwrap();
+            import_snapshot(&tx, &snap, true).unwrap();
+            tx.commit().unwrap();
+        }
+        // 导入后 favicon 应还原为 data URI（之前导入会丢图标）。
+        let sites = db::sites::list(&dst).unwrap();
+        assert_eq!(sites.len(), 1);
+        assert!(sites[0]
+            .favicon_data_uri
+            .as_deref()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+    }
 }

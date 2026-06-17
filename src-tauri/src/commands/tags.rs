@@ -28,12 +28,7 @@ pub fn tags_create(
 }
 
 #[tauri::command]
-pub fn tags_rename(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-    name: String,
-) -> AppResult<()> {
+pub fn tags_rename(app: AppHandle, db: State<'_, DbState>, id: i64, name: String) -> AppResult<()> {
     {
         let conn = db.0.lock();
         db::tags::rename(&conn, id, &name)?;
@@ -43,11 +38,7 @@ pub fn tags_rename(
 }
 
 #[tauri::command]
-pub fn tags_delete(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<()> {
+pub fn tags_delete(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     {
         let conn = db.0.lock();
         db::tags::delete(&conn, id)?;

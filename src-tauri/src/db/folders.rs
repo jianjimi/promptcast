@@ -1,9 +1,9 @@
 // db/folders.rs
 use rusqlite::{params, Connection};
 
+use super::now_ms;
 use crate::error::{AppError, AppResult};
 use crate::models::folder::Folder;
-use super::now_ms;
 
 pub fn list(conn: &Connection) -> AppResult<Vec<Folder>> {
     let mut stmt = conn
@@ -62,7 +62,10 @@ pub fn rename(conn: &Connection, id: i64, name: &str) -> AppResult<()> {
         return Err(AppError::InvalidInput("folder name is empty".into()));
     }
     let n = conn
-        .execute("UPDATE folders SET name = ?1 WHERE id = ?2", params![name, id])
+        .execute(
+            "UPDATE folders SET name = ?1 WHERE id = ?2",
+            params![name, id],
+        )
         .map_err(|e| AppError::Db(e.to_string()))?;
     if n == 0 {
         return Err(AppError::NotFound(format!("folder {id}")));
@@ -81,7 +84,9 @@ pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
 }
 
 pub fn reorder(conn: &mut Connection, ordered_ids: &[i64]) -> AppResult<()> {
-    let tx = conn.transaction().map_err(|e| AppError::Db(e.to_string()))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Db(e.to_string()))?;
     for (i, id) in ordered_ids.iter().enumerate() {
         tx.execute(
             "UPDATE folders SET sort_order = ?1 WHERE id = ?2",

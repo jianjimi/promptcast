@@ -7,10 +7,7 @@ use crate::events;
 use crate::models::prompt::{Prompt, PromptDraft, SortMode};
 
 #[tauri::command]
-pub fn prompts_list(
-    db: State<'_, DbState>,
-    sort: SortMode,
-) -> AppResult<Vec<Prompt>> {
+pub fn prompts_list(db: State<'_, DbState>, sort: SortMode) -> AppResult<Vec<Prompt>> {
     let conn = db.0.lock();
     db::prompts::list(&conn, sort)
 }
@@ -53,11 +50,7 @@ pub fn prompts_update(
 }
 
 #[tauri::command]
-pub fn prompts_delete(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<()> {
+pub fn prompts_delete(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     {
         let conn = db.0.lock();
         db::prompts::delete(&conn, id)?;
@@ -82,11 +75,7 @@ pub fn prompts_toggle_favorite(
 }
 
 #[tauri::command]
-pub fn prompts_toggle_pin(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<Prompt> {
+pub fn prompts_toggle_pin(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<Prompt> {
     let p = {
         let conn = db.0.lock();
         db::prompts::toggle_pin(&conn, id)?

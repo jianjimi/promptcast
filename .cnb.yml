@@ -1,0 +1,37 @@
+# PromptCast CI —— push 到任意分支时跑前端与 Rust 两条流水线（并发）。
+$:
+  push:
+    # ---- 前端 / Node ----
+    - name: frontend
+      docker:
+        image: node:20
+      stages:
+        - name: setup
+          script:
+            - corepack enable
+            - pnpm install --frozen-lockfile
+        - name: ipc-contract
+          script: pnpm check:ipc
+        - name: typecheck
+          script: pnpm vue-tsc --noEmit
+        - name: vitest
+          script: pnpm test
+
+    # ---- Rust / Tauri 后端 ----
+    - name: rust
+      docker:
+        image: rust:1-bookworm
+      stages:
+        - name: system-deps
+          script:
+            - apt-get update
+            - apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+        - name: components
+          script: rustup component add rustfmt clippy
+        - name: fmt
+          script: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+        # 首版不带 -D warnings：仓库尚有少量 clippy 风格告警，先只报告不阻断。
+        - name: clippy
+          script: cargo clippy --manifest-path src-tauri/Cargo.toml
+        - name: test
+          script: cargo test --manifest-path src-tauri/Cargo.toml --lib

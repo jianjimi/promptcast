@@ -12,8 +12,8 @@ use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows_sys::Win32::System::Threading::AttachThreadInput;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowLongPtrW,
-    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
-    SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_RESTORE, WS_EX_TOOLWINDOW,
+    GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongPtrW,
+    ShowWindow, GWL_EXSTYLE, SW_RESTORE, WS_EX_TOOLWINDOW,
 };
 
 pub fn apply(window: &WebviewWindow) {

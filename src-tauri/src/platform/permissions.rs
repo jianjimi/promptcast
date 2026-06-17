@@ -59,7 +59,9 @@ mod imp {
                 &kCFTypeDictionaryValueCallBacks as *const _ as *const c_void,
             );
             let trusted = AXIsProcessTrustedWithOptions(dict);
-            if !dict.is_null() { CFRelease(dict); }
+            if !dict.is_null() {
+                CFRelease(dict);
+            }
             trusted
         }
     }
@@ -67,9 +69,17 @@ mod imp {
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
-    pub fn is_trusted() -> bool { true }
-    pub fn prompt_trust() -> bool { true }
+    pub fn is_trusted() -> bool {
+        true
+    }
+    pub fn prompt_trust() -> bool {
+        true
+    }
 }
 
-pub fn is_trusted() -> bool { imp::is_trusted() }
-pub fn prompt_trust() -> bool { imp::prompt_trust() }
+pub fn is_trusted() -> bool {
+    imp::is_trusted()
+}
+pub fn prompt_trust() -> bool {
+    imp::prompt_trust()
+}

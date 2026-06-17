@@ -2,17 +2,31 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rusqlite::{params, Connection};
 
+use super::now_ms;
 use crate::error::{AppError, AppResult};
 use crate::models::site::Site;
-use super::now_ms;
 
-fn map_row_basic(r: &rusqlite::Row<'_>) -> rusqlite::Result<(i64, String, String, Option<Vec<u8>>, Option<String>, Option<i64>, i64, i64)> {
+fn map_row_basic(
+    r: &rusqlite::Row<'_>,
+) -> rusqlite::Result<(
+    i64,
+    String,
+    String,
+    Option<Vec<u8>>,
+    Option<String>,
+    Option<i64>,
+    i64,
+    i64,
+)> {
     Ok((
-        r.get(0)?, r.get(1)?, r.get(2)?,
+        r.get(0)?,
+        r.get(1)?,
+        r.get(2)?,
         r.get::<_, Option<Vec<u8>>>(3)?,
         r.get::<_, Option<String>>(4)?,
         r.get::<_, Option<i64>>(5)?,
-        r.get(6)?, r.get(7)?,
+        r.get(6)?,
+        r.get(7)?,
     ))
 }
 
@@ -73,11 +87,9 @@ pub fn create(conn: &Connection, name: &str, url: &str) -> AppResult<Site> {
         return Err(AppError::InvalidInput("name/url empty".into()));
     }
     let max_order: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(sort_order), -1) FROM sites",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT COALESCE(MAX(sort_order), -1) FROM sites", [], |r| {
+            r.get(0)
+        })
         .map_err(|e| AppError::Db(e.to_string()))?;
     let now = now_ms();
     conn.execute(
@@ -112,7 +124,9 @@ pub fn delete(conn: &Connection, id: i64) -> AppResult<()> {
 }
 
 pub fn reorder(conn: &mut Connection, ordered_ids: &[i64]) -> AppResult<()> {
-    let tx = conn.transaction().map_err(|e| AppError::Db(e.to_string()))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Db(e.to_string()))?;
     for (i, id) in ordered_ids.iter().enumerate() {
         tx.execute(
             "UPDATE sites SET sort_order = ?1 WHERE id = ?2",

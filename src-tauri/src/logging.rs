@@ -6,7 +6,7 @@ use std::path::Path;
 use tauri::Manager;
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, EnvFilter, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// 返回 guard：必须保留到进程结束，否则 worker 线程提前退出。
 pub fn init(log_dir: &Path) -> WorkerGuard {
@@ -42,8 +42,8 @@ pub fn init(log_dir: &Path) -> WorkerGuard {
 /// 把前端 JS 日志接进来，与后端日志混在同一文件。
 #[derive(Debug, serde::Deserialize)]
 pub struct FrontendLog {
-    pub level: String,    // "trace" | "debug" | "info" | "warn" | "error"
-    pub source: String,   // "drawer" | "preview" | "editor" | "settings" | ...
+    pub level: String,  // "trace" | "debug" | "info" | "warn" | "error"
+    pub source: String, // "drawer" | "preview" | "editor" | "settings" | ...
     pub message: String,
     pub data: Option<serde_json::Value>,
 }

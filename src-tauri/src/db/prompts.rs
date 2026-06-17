@@ -1,9 +1,9 @@
 // db/prompts.rs — Prompts 仓储。所有 SQL 在此文件，commands 只做参数转发。
 use rusqlite::{params, Connection, Row};
 
+use super::now_ms;
 use crate::error::{AppError, AppResult};
 use crate::models::prompt::{Prompt, PromptDraft, SortMode};
-use super::now_ms;
 
 fn map_row(r: &Row<'_>) -> rusqlite::Result<Prompt> {
     Ok(Prompt {
@@ -54,7 +54,9 @@ pub fn list(conn: &Connection, sort: SortMode) -> AppResult<Vec<Prompt>> {
         "SELECT {SELECT_COLS} FROM prompts ORDER BY {}",
         order_clause(sort)
     );
-    let mut stmt = conn.prepare(&sql).map_err(|e| AppError::Db(e.to_string()))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| AppError::Db(e.to_string()))?;
     let mut prompts: Vec<Prompt> = stmt
         .query_map([], map_row)
         .map_err(|e| AppError::Db(e.to_string()))?
@@ -70,21 +72,20 @@ pub fn get(conn: &Connection, id: i64) -> AppResult<Prompt> {
     let mut stmt = conn
         .prepare(&format!("SELECT {SELECT_COLS} FROM prompts WHERE id = ?1"))
         .map_err(|e| AppError::Db(e.to_string()))?;
-    let mut p = stmt
-        .query_row(params![id], map_row)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                AppError::NotFound(format!("prompt {id}"))
-            }
-            other => AppError::Db(other.to_string()),
-        })?;
+    let mut p = stmt.query_row(params![id], map_row).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => AppError::NotFound(format!("prompt {id}")),
+        other => AppError::Db(other.to_string()),
+    })?;
     p.tag_ids = fetch_tag_ids(conn, id)?;
     Ok(p)
 }
 
 fn replace_tags(conn: &Connection, prompt_id: i64, tag_ids: &[i64]) -> AppResult<()> {
-    conn.execute("DELETE FROM prompt_tags WHERE prompt_id = ?1", params![prompt_id])
-        .map_err(|e| AppError::Db(e.to_string()))?;
+    conn.execute(
+        "DELETE FROM prompt_tags WHERE prompt_id = ?1",
+        params![prompt_id],
+    )
+    .map_err(|e| AppError::Db(e.to_string()))?;
     let mut stmt = conn
         .prepare("INSERT INTO prompt_tags (prompt_id, tag_id) VALUES (?1, ?2)")
         .map_err(|e| AppError::Db(e.to_string()))?;
@@ -100,7 +101,9 @@ pub fn create(conn: &mut Connection, draft: PromptDraft) -> AppResult<Prompt> {
         return Err(AppError::InvalidInput("title is empty".into()));
     }
     let now = now_ms();
-    let tx = conn.transaction().map_err(|e| AppError::Db(e.to_string()))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Db(e.to_string()))?;
     tx.execute(
         "INSERT INTO prompts (title, content, folder_id, is_favorite, is_pinned, \
          use_count, created_at, updated_at) VALUES (?1, ?2, ?3, 0, 0, 0, ?4, ?4)",
@@ -117,7 +120,9 @@ pub fn update(conn: &mut Connection, id: i64, draft: PromptDraft) -> AppResult<P
     if draft.title.trim().is_empty() {
         return Err(AppError::InvalidInput("title is empty".into()));
     }
-    let tx = conn.transaction().map_err(|e| AppError::Db(e.to_string()))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Db(e.to_string()))?;
     let n = tx
         .execute(
             "UPDATE prompts SET title=?1, content=?2, folder_id=?3, updated_at=?4 \
@@ -178,4 +183,97 @@ pub fn record_use(conn: &Connection, id: i64) -> AppResult<()> {
     )
     .map_err(|e| AppError::Db(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::memory_conn;
+    use crate::db::tags;
+
+    fn draft(title: &str, tag_ids: Vec<i64>) -> PromptDraft {
+        PromptDraft {
+            title: title.into(),
+            content: "body".into(),
+            folder_id: None,
+            tag_ids,
+        }
+    }
+
+    #[test]
+    fn create_rejects_blank_title() {
+        let mut c = memory_conn();
+        assert!(matches!(
+            create(&mut c, draft("   ", vec![])),
+            Err(AppError::InvalidInput(_))
+        ));
+    }
+
+    #[test]
+    fn create_get_roundtrips_tags() {
+        let mut c = memory_conn();
+        let t1 = tags::create(&c, "a", None).unwrap().id;
+        let t2 = tags::create(&c, "b", None).unwrap().id;
+        let p = create(&mut c, draft("hi", vec![t1, t2])).unwrap();
+        let got = get(&c, p.id).unwrap();
+        assert_eq!(got.title, "hi");
+        assert_eq!(got.tag_ids, vec![t1, t2]);
+    }
+
+    #[test]
+    fn update_replaces_tags() {
+        let mut c = memory_conn();
+        let t1 = tags::create(&c, "a", None).unwrap().id;
+        let p = create(&mut c, draft("x", vec![t1])).unwrap();
+        update(&mut c, p.id, draft("x", vec![])).unwrap();
+        assert!(get(&c, p.id).unwrap().tag_ids.is_empty());
+    }
+
+    #[test]
+    fn pinned_sorts_first_even_under_title_sort() {
+        let mut c = memory_conn();
+        let a = create(&mut c, draft("aaa", vec![])).unwrap();
+        let b = create(&mut c, draft("zzz", vec![])).unwrap();
+        toggle_pin(&c, b.id).unwrap();
+        let listed = list(&c, SortMode::Title).unwrap();
+        assert_eq!(
+            listed[0].id, b.id,
+            "pinned must lead even when title sort would put aaa first"
+        );
+        assert_eq!(listed[1].id, a.id);
+    }
+
+    #[test]
+    fn record_use_increments() {
+        let mut c = memory_conn();
+        let p = create(&mut c, draft("x", vec![])).unwrap();
+        record_use(&c, p.id).unwrap();
+        record_use(&c, p.id).unwrap();
+        let got = get(&c, p.id).unwrap();
+        assert_eq!(got.use_count, 2);
+        assert!(got.last_used_at.is_some());
+    }
+
+    #[test]
+    fn delete_missing_is_not_found() {
+        let c = memory_conn();
+        assert!(matches!(delete(&c, 999), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn deleting_prompt_cascades_prompt_tags() {
+        let mut c = memory_conn();
+        let t1 = tags::create(&c, "a", None).unwrap().id;
+        let p = create(&mut c, draft("x", vec![t1])).unwrap();
+        delete(&c, p.id).unwrap();
+        // 外键 ON DELETE CASCADE 生效（依赖 PRAGMA foreign_keys=ON）。
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM prompt_tags WHERE prompt_id = ?1",
+                params![p.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0);
+    }
 }

@@ -6,9 +6,9 @@
 //   3) 都失败则保留空白
 use std::time::Duration;
 
+use crate::events;
 use scraper::{Html, Selector};
 use tauri::{AppHandle, Manager, State};
-use crate::events;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
@@ -27,8 +27,8 @@ fn normalize_url(raw: &str) -> AppResult<String> {
     } else {
         format!("https://{raw}")
     };
-    let parsed = Url::parse(&candidate)
-        .map_err(|e| AppError::InvalidInput(format!("无效网址: {e}")))?;
+    let parsed =
+        Url::parse(&candidate).map_err(|e| AppError::InvalidInput(format!("无效网址: {e}")))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(AppError::InvalidInput("仅支持 http/https 链接".into()));
     }
@@ -109,11 +109,7 @@ pub fn sites_update(
 }
 
 #[tauri::command]
-pub fn sites_delete(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<()> {
+pub fn sites_delete(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     {
         let conn = db.0.lock();
         db::sites::delete(&conn, id)?;
@@ -137,11 +133,7 @@ pub fn sites_reorder(
 }
 
 #[tauri::command]
-pub fn sites_refresh_favicon(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<Site> {
+pub fn sites_refresh_favicon(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<Site> {
     let url = {
         let conn = db.0.lock();
         db::sites::get(&conn, id)?.url
@@ -161,11 +153,7 @@ pub fn sites_refresh_favicon(
 }
 
 #[tauri::command]
-pub fn sites_open(
-    app: AppHandle,
-    db: State<'_, DbState>,
-    id: i64,
-) -> AppResult<()> {
+pub fn sites_open(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     let url = {
         let conn = db.0.lock();
         db::sites::get(&conn, id)?.url
@@ -194,21 +182,27 @@ fn http_client() -> reqwest::blocking::Client {
 }
 
 fn guess_mime(bytes: &[u8], url: &str) -> &'static str {
-    if bytes.starts_with(b"\x89PNG") { return "image/png"; }
-    if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) { return "image/x-icon"; }
-    if bytes.starts_with(b"GIF8") { return "image/gif"; }
-    if bytes.starts_with(b"\xFF\xD8") { return "image/jpeg"; }
-    if url.ends_with(".svg") { return "image/svg+xml"; }
+    if bytes.starts_with(b"\x89PNG") {
+        return "image/png";
+    }
+    if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
+        return "image/x-icon";
+    }
+    if bytes.starts_with(b"GIF8") {
+        return "image/gif";
+    }
+    if bytes.starts_with(b"\xFF\xD8") {
+        return "image/jpeg";
+    }
+    if url.ends_with(".svg") {
+        return "image/svg+xml";
+    }
     "image/png"
 }
 
 fn fetch_favicon(site_url: &str) -> Option<(Vec<u8>, String)> {
     let parsed = Url::parse(site_url).ok()?;
-    let origin = format!(
-        "{}://{}",
-        parsed.scheme(),
-        parsed.host_str()?
-    );
+    let origin = format!("{}://{}", parsed.scheme(), parsed.host_str()?);
     let cli = http_client();
 
     // 1) /favicon.ico
@@ -238,7 +232,9 @@ fn fetch_favicon(site_url: &str) -> Option<(Vec<u8>, String)> {
     let href = href?;
     let abs = parsed.join(&href).ok()?.to_string();
     let resp = cli.get(&abs).send().ok()?;
-    if !resp.status().is_success() { return None; }
+    if !resp.status().is_success() {
+        return None;
+    }
     let bytes = read_capped(resp, MAX_FAVICON)?;
     let mime = guess_mime(&bytes, &abs).to_string();
     Some((bytes, mime))
