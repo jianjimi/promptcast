@@ -69,6 +69,10 @@ pub fn window_set_pin(app: AppHandle, pinned: bool) -> AppResult<()> {
     if let Some(w) = app.get_webview_window("drawer") {
         let _ = w.set_always_on_top(pinned);
     }
+    // 记录 pin 状态：失焦自动隐藏逻辑据此判断是否保留抽屉。
+    app.state::<crate::DrawerPinned>()
+        .0
+        .store(pinned, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 

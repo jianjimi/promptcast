@@ -18,6 +18,7 @@ export default defineComponent({
     inject: (_id: number) => true,
     edit: (_id: number) => true,
     "new-prompt": () => true,
+    context: (_p: { id: number; x: number; y: number }) => true,
   },
   computed: {
     pinned(): Prompt[] { return this.prompts.filter((p) => p.is_pinned); },
@@ -49,6 +50,9 @@ export default defineComponent({
       log.info(`[PromptList] fwd toggle-fav id=${id}`);
       this.$emit("toggle-fav", id);
     },
+    fwdContext(p: { id: number; x: number; y: number }) {
+      this.$emit("context", p);
+    },
     fwdNew() {
       log.info(`[PromptList] fwd new-prompt`);
       this.$emit("new-prompt");
@@ -69,6 +73,7 @@ export default defineComponent({
           @toggle-fav="fwdFav"
           @inject="fwdInject"
           @edit="fwdEdit"
+          @context="fwdContext"
         />
       </div>
     </template>

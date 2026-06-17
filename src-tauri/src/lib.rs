@@ -26,9 +26,17 @@ pub struct FrontmostTarget {
 }
 pub struct LastFrontmost(pub Mutex<FrontmostTarget>);
 
+/// 抽屉是否被「钉住」（钉住时失焦不自动隐藏）。由 window_set_pin 写。
+pub struct DrawerPinned(pub std::sync::atomic::AtomicBool);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 单实例必须第一个注册：第二次启动时唤起已有抽屉而非起新进程。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || summon_drawer(&app2));
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -52,6 +60,7 @@ pub fn run() {
             let state = DbState::open(&db_path).expect("init db");
             app.manage(state);
             app.manage(LastFrontmost(Mutex::new(FrontmostTarget::default())));
+            app.manage(DrawerPinned(std::sync::atomic::AtomicBool::new(false)));
 
             // 列出所有从 tauri.conf.json 预声明的窗口（用于确认 conf 是否生效）
             let labels: Vec<String> = app
@@ -67,6 +76,25 @@ pub fn run() {
                 {
                     drawer.open_devtools();
                 }
+                // 失焦自动隐藏（钉住时不隐藏）—— 点开别的 App / 打开编辑窗即收起，像 Raycast。
+                let app_h = app.handle().clone();
+                let dr = drawer.clone();
+                let started = std::time::Instant::now();
+                drawer.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(false) = event {
+                        // 启动初期（终端仍在前台）不自动隐藏，避免一启动抽屉就消失。
+                        if started.elapsed() < std::time::Duration::from_millis(1200) {
+                            return;
+                        }
+                        let pinned = app_h
+                            .state::<DrawerPinned>()
+                            .0
+                            .load(std::sync::atomic::Ordering::Relaxed);
+                        if !pinned {
+                            let _ = dr.hide();
+                        }
+                    }
+                });
             } else {
                 tracing::warn!("drawer window not found at startup");
             }

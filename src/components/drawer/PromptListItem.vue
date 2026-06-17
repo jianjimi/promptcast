@@ -21,6 +21,7 @@ export default defineComponent({
     "toggle-fav": (_id: number) => true,
     inject: (_id: number) => true,
     edit: (_id: number) => true,
+    context: (_p: { id: number; x: number; y: number }) => true,
   },
   computed: {
     preview(): string { return snippet(this.prompt.content, 90); },
@@ -29,6 +30,9 @@ export default defineComponent({
     onRowClick() {
       log.info(`[ListItem] row click id=${this.prompt.id}`);
       this.$emit("click", this.prompt.id);
+    },
+    onContext(e: MouseEvent) {
+      this.$emit("context", { id: this.prompt.id, x: e.clientX, y: e.clientY });
     },
     onStar(e: Event) {
       e.stopPropagation();
@@ -50,7 +54,7 @@ export default defineComponent({
 </script>
 
 <template>
-  <div class="item" :class="{ selected }" @click="onRowClick">
+  <div class="item" :class="{ selected }" @click="onRowClick" @contextmenu.prevent="onContext">
     <div class="main">
       <div class="title-row">
         <Pin v-if="prompt.is_pinned" :size="11" class="pin" />

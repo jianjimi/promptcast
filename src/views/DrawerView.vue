@@ -58,6 +58,7 @@ export default defineComponent({
     return {
       query: "",
       clipSelectedId: null as number | null,
+      ctxMenu: { visible: false, x: 0, y: 0, id: null as number | null },
       unlisteners: [] as UnlistenFn[],
     };
   },
@@ -116,6 +117,10 @@ export default defineComponent({
       return this.searched.find((p) => p.id === id)
         ?? this.prompts.list.find((p) => p.id === id)
         ?? null;
+    },
+    ctxTarget(): Prompt | null {
+      if (this.ctxMenu.id == null) return null;
+      return this.prompts.list.find((p) => p.id === this.ctxMenu.id) ?? null;
     },
   },
   watch: {
@@ -226,6 +231,45 @@ export default defineComponent({
     // 根据当前模式分发注入 / 复制。
     triggerInject() { return this.isClip ? this.injectClipSelected() : this.injectSelected(); },
     triggerCopy() { return this.isClip ? this.copyClipSelected() : this.copySelected(); },
+    // ---- 列表右键菜单 ----
+    onContext(p: { id: number; x: number; y: number }) {
+      const MW = 150, MH = 156;
+      const x = Math.min(p.x, window.innerWidth - MW - 8);
+      const y = Math.min(p.y, window.innerHeight - MH - 8);
+      this.ctxMenu = { visible: true, x, y, id: p.id };
+    },
+    closeCtx() { this.ctxMenu.visible = false; },
+    async ctxCopy() {
+      const p = this.ctxTarget; this.closeCtx();
+      if (!p) return;
+      await injectCopyOnly(p.content);
+      this.ui.pushToast("已复制内容", "success");
+    },
+    async ctxDuplicate() {
+      const p = this.ctxTarget; this.closeCtx();
+      if (!p) return;
+      await this.prompts.create({
+        title: `${p.title} (副本)`,
+        content: p.content,
+        folder_id: p.folder_id,
+        tag_ids: [...p.tag_ids],
+      });
+      this.ui.pushToast("已复制为新条目", "success");
+    },
+    async ctxTogglePin() {
+      const id = this.ctxMenu.id; this.closeCtx();
+      if (id != null) {
+        try { await this.prompts.togglePin(id); }
+        catch (e) { log.error(`togglePin failed: ${e}`); }
+      }
+    },
+    async ctxDelete() {
+      const p = this.ctxTarget; this.closeCtx();
+      if (!p) return;
+      if (!confirm(`删除「${p.title}」？此操作不可撤销。`)) return;
+      try { await this.prompts.remove(p.id); }
+      catch (e) { log.error(`delete failed: ${e}`); }
+    },
     async injectSelected() {
       log.info("injectSelected entry");
       const p = this.selectedPrompt;
@@ -294,6 +338,10 @@ export default defineComponent({
       catch (e) { log.error(`editById failed: ${e}`); }
     },
     onKey(e: KeyboardEvent) {
+      if (this.ctxMenu.visible) {
+        if (e.key === "Escape") { e.preventDefault(); this.closeCtx(); }
+        return; // 右键菜单打开时屏蔽列表快捷键
+      }
       const cmd = e.metaKey || e.ctrlKey;
       const target = e.target as HTMLElement | null;
       const inEditable =
@@ -343,6 +391,7 @@ export default defineComponent({
       @inject="injectById"
       @edit="editById"
       @new-prompt="newPrompt"
+      @context="onContext"
     />
     <ClipboardList
       v-else
@@ -355,6 +404,21 @@ export default defineComponent({
     <SiteLauncher />
     <HintBar :count="isClip ? clipFiltered.length : searched.length" />
     <BaseToast />
+
+    <!-- 列表右键菜单 -->
+    <div
+      v-if="ctxMenu.visible"
+      class="ctx-overlay"
+      @click="closeCtx"
+      @contextmenu.prevent="closeCtx"
+    >
+      <div class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
+        <button @click="ctxCopy">复制内容</button>
+        <button @click="ctxDuplicate">复制为副本</button>
+        <button @click="ctxTogglePin">{{ ctxTarget && ctxTarget.is_pinned ? "取消置顶" : "置顶" }}</button>
+        <button class="danger" @click="ctxDelete">删除</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -370,4 +434,30 @@ export default defineComponent({
   overflow: hidden;
   border: 1px solid var(--border);
 }
+.ctx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+.ctx-menu {
+  position: fixed;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ctx-menu button {
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+}
+.ctx-menu button:hover { background: var(--bg-hover); }
+.ctx-menu button.danger { color: var(--danger); }
 </style>
