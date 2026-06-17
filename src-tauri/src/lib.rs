@@ -67,7 +67,7 @@ pub fn run() {
                 crate::platform::apply_panel_style(&drawer);
                 #[cfg(debug_assertions)]
                 {
-                    drawer.open_devtools();
+                    // drawer.open_devtools();
                 }
                 // 失焦自动隐藏（钉住时不隐藏）—— 点开别的 App / 打开编辑窗即收起，像 Raycast。
                 let app_h = app.handle().clone();
