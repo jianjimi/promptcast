@@ -110,3 +110,48 @@ CREATE TABLE IF NOT EXISTS sync_state (
   sync_enabled     INTEGER NOT NULL DEFAULT 0
 );
 "#;
+
+// V4 — 把 folders/tags 的 name 列级 UNIQUE 改成「仅存活行唯一」的部分唯一索引。
+// 原因（review 确认）：软删墓碑仍占着 name，导致 30 天内无法重建同名文件夹/标签；且
+// 跨设备同名收编 / 重命名互换在 apply 时会撞 UNIQUE。SQLite 不能直接删列约束 → 重建表。
+// 重建期间必须 foreign_keys=OFF（见 migrations.rs），且整体在事务里保证原子。
+pub const V4: &str = r#"
+BEGIN;
+CREATE TABLE folders_new (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  uuid        TEXT,
+  updated_at  INTEGER NOT NULL DEFAULT 0,
+  deleted_at  INTEGER,
+  dirty       INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO folders_new (id, name, sort_order, created_at, uuid, updated_at, deleted_at, dirty)
+  SELECT id, name, sort_order, created_at, uuid, updated_at, deleted_at, dirty FROM folders;
+DROP TABLE folders;
+ALTER TABLE folders_new RENAME TO folders;
+
+CREATE TABLE tags_new (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  color       TEXT,
+  uuid        TEXT,
+  created_at  INTEGER NOT NULL DEFAULT 0,
+  updated_at  INTEGER NOT NULL DEFAULT 0,
+  deleted_at  INTEGER,
+  dirty       INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO tags_new (id, name, color, uuid, created_at, updated_at, deleted_at, dirty)
+  SELECT id, name, color, uuid, created_at, updated_at, deleted_at, dirty FROM tags;
+DROP TABLE tags;
+ALTER TABLE tags_new RENAME TO tags;
+
+CREATE UNIQUE INDEX idx_folders_uuid      ON folders(uuid) WHERE uuid IS NOT NULL;
+CREATE INDEX        idx_folders_dirty     ON folders(dirty) WHERE dirty = 1;
+CREATE UNIQUE INDEX idx_folders_name_live ON folders(name) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_tags_uuid         ON tags(uuid) WHERE uuid IS NOT NULL;
+CREATE INDEX        idx_tags_dirty        ON tags(dirty) WHERE dirty = 1;
+CREATE UNIQUE INDEX idx_tags_name_live    ON tags(name) WHERE deleted_at IS NULL;
+COMMIT;
+"#;

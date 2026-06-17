@@ -361,8 +361,8 @@ export default defineComponent({
                 <div>
                   <div class="title">{{ auth.email || "已登录" }}</div>
                   <div class="sub">
-                    状态：{{ sync.status.state }} · 上次同步：{{ lastSyncText }}
-                    <template v-if="sync.status.pending > 0"> · 待推送 {{ sync.status.pending }}</template>
+                    状态：{{ sync.status.enabled ? sync.status.state : "已暂停" }} · 上次同步：{{ lastSyncText }}
+                    <template v-if="sync.status.pending > 0 && sync.status.enabled"> · 待推送 {{ sync.status.pending }}</template>
                   </div>
                   <div v-if="sync.status.message" class="sub" style="color:var(--danger)">
                     {{ sync.status.message }}

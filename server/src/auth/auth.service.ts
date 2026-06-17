@@ -96,7 +96,15 @@ export class AuthService {
     if (dot < 0) throw new UnauthorizedException('bad refresh token');
     const id = token.slice(0, dot);
     const raw = token.slice(dot + 1);
-    const row = await this.prisma.refreshToken.findUnique({ where: { id } });
+    // id 是 @db.Uuid 列：非法 UUID 会让 findUnique 抛 Prisma 错（500）。统一吞成 401。
+    let row: Awaited<
+      ReturnType<typeof this.prisma.refreshToken.findUnique>
+    > = null;
+    try {
+      row = await this.prisma.refreshToken.findUnique({ where: { id } });
+    } catch {
+      throw new UnauthorizedException('refresh token invalid');
+    }
     if (!row || row.revoked || row.expiresAt.getTime() < Date.now()) {
       throw new UnauthorizedException('refresh token invalid/expired');
     }

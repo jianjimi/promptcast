@@ -64,7 +64,11 @@ export class SyncService {
    */
   async push(userId: string, changes: ChangeDto[]): Promise<PushResult> {
     const results: PushItemResult[] = [];
+    // updated_at 是客户端墙钟、且是 LWW 的键。把远未来的值夹到「服务端现在 + 少量偏移」，
+    // 防止某台时钟跑飞/有 bug 的设备用 year-2100 的 updated_at 永久压制并拒绝其它设备的编辑。
+    const maxAllowed = Date.now() + 5 * 60 * 1000;
     for (const c of changes) {
+      const updatedAt = Math.min(c.updated_at, maxAllowed);
       const deletedAt =
         c.deleted_at === undefined || c.deleted_at === null
           ? null
@@ -73,7 +77,7 @@ export class SyncService {
         INSERT INTO sync_records (user_id, entity, uuid, updated_at, deleted_at, data, seq)
         VALUES (
           ${userId}::uuid, ${c.entity}, ${c.uuid}::uuid,
-          ${BigInt(c.updated_at)}, ${deletedAt},
+          ${BigInt(updatedAt)}, ${deletedAt},
           ${JSON.stringify(c.data)}::jsonb, nextval('sync_records_seq')
         )
         ON CONFLICT (user_id, entity, uuid) DO UPDATE

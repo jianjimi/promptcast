@@ -31,12 +31,19 @@ fn table_for(entity: &str) -> AppResult<&'static str> {
     })
 }
 
-/// 推送成功后清 dirty。
-pub fn clear_dirty(conn: &Connection, entity: &str, uuid: &str) -> AppResult<()> {
+/// 推送成功后清 dirty —— 仅当行仍是被推送的那个版本（updated_at 未变）。
+/// 防丢更新：push 是「快照 dirty → 放锁 → HTTP」，若期间用户又改了这行（updated_at 变、
+/// 重新置 dirty），无条件清 dirty 会吞掉这次新编辑；带 updated_at 守卫则保留、下拍重推。
+pub fn clear_dirty(
+    conn: &Connection,
+    entity: &str,
+    uuid: &str,
+    pushed_updated_at: i64,
+) -> AppResult<()> {
     let t = table_for(entity)?;
     conn.execute(
-        &format!("UPDATE {t} SET dirty = 0 WHERE uuid = ?1"),
-        params![uuid],
+        &format!("UPDATE {t} SET dirty = 0 WHERE uuid = ?1 AND updated_at = ?2 AND dirty = 1"),
+        params![uuid, pushed_updated_at],
     )
     .map_err(dberr)?;
     Ok(())
@@ -331,7 +338,14 @@ pub fn apply_change(conn: &mut Connection, ch: &Change) -> AppResult<bool> {
 fn apply_folder(conn: &Connection, ch: &Change) -> AppResult<bool> {
     let d: FolderData = serde_json::from_value(ch.data.clone())
         .map_err(|e| AppError::Internal(format!("folder data: {e}")))?;
-    let target = find_target(conn, "folders", &ch.uuid, Some(&d.name))?;
+    // 墓碑只按 uuid 匹配，绝不按名收编 —— 否则一台设备删除它自己的同名 folder 会被收编到
+    // 另一台不相关的同名存活 folder 上，把后者误软删并孤立其 prompt（review #6）。
+    let collide_name = if ch.deleted_at.is_none() {
+        Some(d.name.as_str())
+    } else {
+        None
+    };
+    let target = find_target(conn, "folders", &ch.uuid, collide_name)?;
     if !decide_write(target.map(|(_, u, dty)| (u, dty)), ch.updated_at) {
         return Ok(false);
     }
@@ -367,7 +381,13 @@ fn apply_folder(conn: &Connection, ch: &Change) -> AppResult<bool> {
 fn apply_tag(conn: &Connection, ch: &Change) -> AppResult<bool> {
     let d: TagData = serde_json::from_value(ch.data.clone())
         .map_err(|e| AppError::Internal(format!("tag data: {e}")))?;
-    let target = find_target(conn, "tags", &ch.uuid, Some(&d.name))?;
+    // 墓碑只按 uuid 匹配（同 apply_folder，review #6）。
+    let collide_name = if ch.deleted_at.is_none() {
+        Some(d.name.as_str())
+    } else {
+        None
+    };
+    let target = find_target(conn, "tags", &ch.uuid, collide_name)?;
     if !decide_write(target.map(|(_, u, dty)| (u, dty)), ch.updated_at) {
         return Ok(false);
     }
@@ -532,6 +552,41 @@ pub fn touch_synced(conn: &Connection) -> AppResult<()> {
     super::sync_state::touch_last_sync(conn, now_ms())
 }
 
+/// 物理删除已确认推送(dirty=0)的旧墓碑（deleted_at 早于 now-retention_ms）。
+/// 安全前提：墓碑已 push（dirty=0），且本地游标已越过它 ⇒ 服务端不会再重发同一墓碑
+/// （墓碑记录不会再变，除非被 un-delete，本应用无此操作）。返回删除行数。
+pub fn gc_tombstones(conn: &Connection, retention_ms: i64) -> AppResult<u64> {
+    let cutoff = now_ms() - retention_ms;
+    let mut total = 0u64;
+    for t in ["folders", "tags", "prompts", "sites"] {
+        let n = conn
+            .execute(
+                &format!(
+                    "DELETE FROM {t} WHERE deleted_at IS NOT NULL AND dirty = 0 AND deleted_at < ?1"
+                ),
+                params![cutoff],
+            )
+            .map_err(dberr)?;
+        total += n as u64;
+    }
+    Ok(total)
+}
+
+/// 账户切换时清空本地可同步数据（folders/tags/prompts/sites + junction）。
+/// 防上一个账户的本地数据泄漏给新账户，并让新账户从 cursor=0 拉自己的数据。
+/// 物理删除（非软删）。settings / clipboard 不在同步范围、不动。
+pub fn wipe_syncable(conn: &Connection) -> AppResult<()> {
+    conn.execute_batch(
+        "DELETE FROM prompt_tags; \
+         DELETE FROM prompts; \
+         DELETE FROM tags; \
+         DELETE FROM folders; \
+         DELETE FROM sites;",
+    )
+    .map_err(dberr)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,6 +602,42 @@ mod tests {
             data,
             seq: 1,
         }
+    }
+
+    #[test]
+    fn tombstone_does_not_adopt_live_same_named_row() {
+        let mut c = memory_conn();
+        folders::create(&c, "Work").unwrap();
+        let ua: String = c
+            .query_row("SELECT uuid FROM folders WHERE name = 'Work'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        // 服务端来一条「不同 uuid 的 'Work' 墓碑」（别的设备删了它自己的同名 folder）。
+        let ch = Change {
+            entity: ENTITY_FOLDER.into(),
+            uuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".into(),
+            updated_at: 9999,
+            deleted_at: Some(9999),
+            data: json!({"name":"Work","sort_order":0,"created_at":1}),
+            seq: 1,
+        };
+        apply_change(&mut c, &ch).unwrap();
+        // 本地存活 'Work'(uuidA) 不被误删 / 不被按名收编。
+        let live = folders::list(&c).unwrap();
+        assert_eq!(
+            live.len(),
+            1,
+            "local live folder survives unrelated tombstone"
+        );
+        let still: String = c
+            .query_row(
+                "SELECT uuid FROM folders WHERE name = 'Work' AND deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(still, ua, "uuid not adopted by the tombstone");
     }
 
     #[test]
@@ -681,10 +772,20 @@ mod tests {
         let c = memory_conn();
         folders::create(&c, "a").unwrap();
         assert_eq!(dirty_count(&c).unwrap(), 1);
-        let u: String = c
-            .query_row("SELECT uuid FROM folders LIMIT 1", [], |r| r.get(0))
+        let (u, upd): (String, i64) = c
+            .query_row("SELECT uuid, updated_at FROM folders LIMIT 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
-        clear_dirty(&c, ENTITY_FOLDER, &u).unwrap();
+        // 版本不符不清（守卫）。
+        clear_dirty(&c, ENTITY_FOLDER, &u, upd + 999).unwrap();
+        assert_eq!(
+            dirty_count(&c).unwrap(),
+            1,
+            "stale-version clear is a no-op"
+        );
+        // 版本相符才清。
+        clear_dirty(&c, ENTITY_FOLDER, &u, upd).unwrap();
         assert_eq!(dirty_count(&c).unwrap(), 0);
         let _ = sync_state::get(&c).unwrap();
     }

@@ -81,26 +81,46 @@ fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -
     let dberr = |e: rusqlite::Error| AppError::Db(e.to_string());
 
     if replace {
-        for t in [
-            "prompt_tags",
-            "prompts",
-            "tags",
-            "folders",
-            "sites",
-            "settings",
-        ] {
-            tx.execute(&format!("DELETE FROM {t}"), []).map_err(dberr)?;
+        // 若已登录同步：可同步表用「软删（墓碑+dirty）」而非硬删，让这次清空也能同步给别的设备，
+        // 否则别的设备会把旧记录重新推回来、再加上新 uuid 的副本（review #13）。
+        // 未登录同步：仍硬删，保持本地干净不留墓碑。junction/settings 始终硬删（本地/不同步）。
+        let synced = tx
+            .query_row("SELECT user_id FROM sync_state WHERE id = 1", [], |r| {
+                r.get::<_, Option<String>>(0)
+            })
+            .optional()
+            .map_err(dberr)?
+            .flatten()
+            .is_some();
+        if synced {
+            let now = crate::db::now_ms();
+            for t in ["prompts", "tags", "folders", "sites"] {
+                tx.execute(
+                    &format!(
+                        "UPDATE {t} SET deleted_at = ?1, updated_at = ?1, dirty = 1 \
+                         WHERE deleted_at IS NULL"
+                    ),
+                    params![now],
+                )
+                .map_err(dberr)?;
+            }
+        } else {
+            for t in ["prompts", "tags", "folders", "sites"] {
+                tx.execute(&format!("DELETE FROM {t}"), []).map_err(dberr)?;
+            }
         }
+        tx.execute("DELETE FROM prompt_tags", []).map_err(dberr)?;
+        tx.execute("DELETE FROM settings", []).map_err(dberr)?;
     }
 
     let mut inserted = 0u32;
 
-    // folders：不保留源 id，建立 old->new 映射；同名复用现有（name UNIQUE）。
+    // folders：不保留源 id，建立 old->new 映射；同名复用现有「存活」行（部分唯一索引仅约束存活行）。
     let mut folder_map: HashMap<i64, i64> = HashMap::new();
     for f in &snap.folders {
         let existing: Option<i64> = tx
             .query_row(
-                "SELECT id FROM folders WHERE name = ?1",
+                "SELECT id FROM folders WHERE name = ?1 AND deleted_at IS NULL",
                 params![f.name],
                 |r| r.get(0),
             )
@@ -127,12 +147,12 @@ fn import_snapshot(tx: &rusqlite::Transaction, snap: &Snapshot, replace: bool) -
         folder_map.insert(f.id, new_id);
     }
 
-    // tags：同样按 name 去重，建立映射。
+    // tags：同样按 name 去重（仅存活行），建立映射。
     let mut tag_map: HashMap<i64, i64> = HashMap::new();
     for t in &snap.tags {
         let existing: Option<i64> = tx
             .query_row(
-                "SELECT id FROM tags WHERE name = ?1",
+                "SELECT id FROM tags WHERE name = ?1 AND deleted_at IS NULL",
                 params![t.name],
                 |r| r.get(0),
             )

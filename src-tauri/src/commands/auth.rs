@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 
 use tauri::{AppHandle, State};
 
-use crate::db::{settings, sync_state, DbState};
+use crate::db::{settings, sync_repo, sync_state, DbState};
 use crate::error::{AppError, AppResult};
 use crate::sync::{self, client::Client, SyncRuntime};
 
@@ -37,6 +37,14 @@ fn on_authed(
     *rt.email.lock() = Some(email.to_string());
     {
         let conn = db.0.lock();
+        // 账户切换：清掉上一个账户的本地可同步数据 + 重置游标，新账户从头拉自己的，
+        // 避免上一个账户的本地行泄漏给新账户（review #5）。首登/同账户不动。
+        let prev = sync_state::get(&conn).ok().and_then(|s| s.user_id);
+        if prev.as_deref().is_some_and(|p| p != user_id) {
+            sync_repo::wipe_syncable(&conn)?;
+            sync_state::set_cursor(&conn, 0)?;
+            tracing::info!("account switch: wiped local syncable data + reset pull cursor");
+        }
         sync_state::set_user(&conn, Some(user_id))?;
         sync_state::set_enabled(&conn, true)?;
         settings::set_raw(&conn, USER_EMAIL_KEY, email)?;
@@ -99,7 +107,8 @@ pub fn auth_logout(
     *rt.email.lock() = None;
     {
         let conn = db.0.lock();
-        let _ = sync_state::set_user(&conn, None);
+        // 停同步、清会话；但保留 sync_state.user_id 作为「上一个账户」标记，供下次登录
+        // 判定是否换号（换号才 wipe 本地数据，见 on_authed）。本地数据照常离线可用。
         let _ = sync_state::set_enabled(&conn, false);
         let _ = settings::set_raw(&conn, USER_EMAIL_KEY, "");
     }

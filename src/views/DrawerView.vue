@@ -20,6 +20,7 @@ import { useTagsStore } from "../stores/tags";
 import { useSitesStore } from "../stores/sites";
 import { useClipboardStore } from "../stores/clipboard";
 import { useSettingsStore } from "../stores/settings";
+import { useSyncStore } from "../stores/sync";
 import { useUIStore } from "../stores/ui";
 
 import { buildSearchable, searchPrompts } from "../composables/useFuzzySearch";
@@ -33,6 +34,7 @@ import {
   EVT_SETTINGS_CHANGED,
   EVT_THEME_CHANGED,
   EVT_CLIPBOARD_CHANGED,
+  EVT_SYNC_STATUS_CHANGED,
 } from "../composables/useAppEvents";
 import {
   injectPaste,
@@ -42,6 +44,7 @@ import {
   windowOpenEditor,
   windowOpenPreview,
   windowHideDrawer,
+  windowOpenSettings,
 } from "../api/window";
 import { ensureBackendReady } from "../api";
 import { log } from "../utils/logger";
@@ -49,6 +52,7 @@ import { log } from "../utils/logger";
 import type { Prompt } from "../types/prompt";
 import type { ClipEntry } from "../types/clipboard";
 import type { ThemeMode } from "../types/settings";
+import type { SyncStatus } from "../types/sync";
 
 export default defineComponent({
   name: "DrawerView",
@@ -70,6 +74,16 @@ export default defineComponent({
     folders() { return useFoldersStore(); },
     tags() { return useTagsStore(); },
     clip() { return useClipboardStore(); },
+    syncStore() { return useSyncStore(); },
+    syncBadge(): { show: boolean; cls: string; label: string } | null {
+      const s = this.syncStore.status;
+      if (!s.logged_in || !s.enabled) return null;
+      if (s.state === "syncing") return { show: true, cls: "syncing", label: "同步中…" };
+      if (s.state === "error" || s.state === "offline")
+        return { show: true, cls: "bad", label: s.state === "offline" ? "离线" : "同步出错" };
+      if (s.pending > 0) return { show: true, cls: "pending", label: `待同步 ${s.pending}` };
+      return null;
+    },
     isClip(): boolean { return this.ui.activeChipKey === "clipboard"; },
     clipFiltered(): ClipEntry[] {
       const list = this.clip.list;
@@ -159,6 +173,7 @@ export default defineComponent({
       this.clip.loadAll(this.settings.data.clipboard_history_limit),
     ]);
     applyPersistedTheme(this.settings.data.theme);
+    try { await this.syncStore.load(); } catch { /* 同步未配置/未登录 */ }
     document.addEventListener("keydown", this.onKey);
     await this.subscribeEvents();
   },
@@ -168,6 +183,7 @@ export default defineComponent({
   },
   methods: {
     sites() { return useSitesStore(); },
+    openSettings() { void windowOpenSettings(); },
     async subscribeEvents() {
       this.unlisteners.push(
         await listenAppEvent(EVT_PROMPTS_CHANGED, () => this.prompts.loadAll()),
@@ -177,6 +193,7 @@ export default defineComponent({
         await listenAppEvent(EVT_CLIPBOARD_CHANGED, () => this.clip.loadAll(this.settings.data.clipboard_history_limit)),
         await listenAppEvent(EVT_SETTINGS_CHANGED, () => this.settings.loadAll()),
         await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
+        await listenAppEvent<SyncStatus>(EVT_SYNC_STATUS_CHANGED, (s) => this.syncStore.apply(s)),
       );
     },
     focusSearch() {
@@ -407,6 +424,15 @@ export default defineComponent({
     />
     <SiteLauncher />
     <HintBar :count="isClip ? clipFiltered.length : searched.length" />
+    <div
+      v-if="syncBadge"
+      class="sync-strip"
+      :class="syncBadge.cls"
+      title="账户与同步设置"
+      @click="openSettings"
+    >
+      {{ syncBadge.label }}
+    </div>
     <BaseToast />
 
     <!-- 列表右键菜单 -->
@@ -438,6 +464,19 @@ export default defineComponent({
   overflow: hidden;
   border: 1px solid var(--border);
 }
+.sync-strip {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 10.5px;
+  padding: 3px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+}
+.sync-strip:hover { background: var(--bg-hover); }
+.sync-strip.syncing { color: var(--accent); }
+.sync-strip.bad { color: var(--danger); }
 .ctx-overlay {
   position: fixed;
   inset: 0;

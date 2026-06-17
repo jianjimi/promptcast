@@ -4,7 +4,7 @@ use rusqlite::{params, Connection};
 use super::schema;
 use crate::error::{AppError, AppResult};
 
-const CURRENT_VERSION: i64 = 3;
+const CURRENT_VERSION: i64 = 4;
 
 pub fn migrate(conn: &Connection) -> AppResult<()> {
     let v: i64 = conn
@@ -32,6 +32,19 @@ pub fn migrate(conn: &Connection) -> AppResult<()> {
             params![device_id],
         )
         .map_err(|e| AppError::Db(e.to_string()))?;
+    }
+
+    if v < 4 {
+        // 重建 folders/tags（删列级 UNIQUE）需先关外键，否则 DROP TABLE 会触发级联清空 prompts。
+        // PRAGMA foreign_keys 在事务内是 no-op，必须在 V4 的 BEGIN 之前设置 → 单独 execute。
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")
+            .map_err(|e| AppError::Db(e.to_string()))?;
+        let res = conn
+            .execute_batch(schema::V4)
+            .map_err(|e| AppError::Db(format!("apply v4: {e}")));
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| AppError::Db(e.to_string()))?;
+        res?;
     }
 
     if v != CURRENT_VERSION {
@@ -174,5 +187,38 @@ mod tests {
         );
         assert_eq!(updated_at, 123, "updated_at backfilled from created_at");
         assert_eq!(dirty, 1, "existing row queued for first push");
+    }
+
+    #[test]
+    fn v4_name_unique_only_among_live_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        // 建 'work'，软删它。
+        conn.execute(
+            "INSERT INTO folders (name, sort_order, created_at, uuid, updated_at) \
+             VALUES ('work', 0, 1, 'u1', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE folders SET deleted_at = 2 WHERE uuid = 'u1'", [])
+            .unwrap();
+        // 同名再建（存活）应成功 —— 不被墓碑挡住。
+        conn.execute(
+            "INSERT INTO folders (name, sort_order, created_at, uuid, updated_at) \
+             VALUES ('work', 0, 3, 'u2', 3)",
+            [],
+        )
+        .expect("recreate soft-deleted name allowed");
+        // 但两个存活同名应被部分唯一索引拒绝。
+        let dup = conn.execute(
+            "INSERT INTO folders (name, sort_order, created_at, uuid, updated_at) \
+             VALUES ('work', 0, 4, 'u3', 4)",
+            [],
+        );
+        assert!(
+            dup.is_err(),
+            "two live rows with same name must be rejected"
+        );
     }
 }

@@ -348,6 +348,8 @@ fn sync_loop(app: tauri::AppHandle) {
     use std::time::{Duration, Instant};
     std::thread::sleep(Duration::from_secs(2));
     let mut last_tick = Instant::now();
+    let mut fails: u32 = 0;
+    let mut backoff_until: Option<Instant> = None;
     tracing::info!("sync loop started");
     loop {
         std::thread::sleep(Duration::from_millis(500));
@@ -356,6 +358,12 @@ fn sync_loop(app: tauri::AppHandle) {
             None => continue,
         };
         let woke = rt.wake.swap(false, Ordering::Relaxed);
+        // 退避期内：非手动唤起就跳过（手动「立即同步」可越过退避强制重试）。
+        if let Some(until) = backoff_until {
+            if Instant::now() < until && !woke {
+                continue;
+            }
+        }
         let periodic = last_tick.elapsed() >= Duration::from_secs(60);
         if !woke && !periodic {
             continue;
@@ -370,15 +378,36 @@ fn sync_loop(app: tauri::AppHandle) {
                 if o.pushed > 0 || o.pulled > 0 {
                     tracing::info!(pushed = o.pushed, pulled = o.pulled, "sync ok");
                 }
+                fails = 0;
+                backoff_until = None;
                 crate::sync::emit_status(&app, "idle", None);
             }
             Err(e) => {
-                tracing::warn!(error = %e, "sync cycle failed");
-                crate::sync::emit_status(&app, "error", Some(e.to_string()));
+                fails = fails.saturating_add(1);
+                // 指数退避（2,4,8,…封顶 300s）+ 抖动，避免网络抖动时刷屏/打满。
+                let base = 2u64.saturating_pow(fails.min(6)).min(300);
+                let jitter = sync_jitter_secs();
+                backoff_until = Some(Instant::now() + Duration::from_secs(base + jitter));
+                let msg = e.to_string();
+                let state = if msg.contains("network") {
+                    "offline"
+                } else {
+                    "error"
+                };
+                tracing::warn!(error = %e, fails, backoff = base, "sync cycle failed; backing off");
+                crate::sync::emit_status(&app, state, Some(msg));
             }
         }
         rt.busy.store(false, Ordering::Relaxed);
     }
+}
+
+/// 退避抖动 0..=3s（用系统时间纳秒取低位，避免引入 rand 依赖）。
+fn sync_jitter_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.subsec_nanos() as u64) % 4)
+        .unwrap_or(0)
 }
 
 /// 剪贴板历史监听循环（后台线程）。macOS 无变化事件，靠轮询 changeCount；

@@ -27,10 +27,12 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: "postgresql://promptcast:promptcast@postgres:5432/promptcast?schema=public"
-      JWT_SECRET: "dev-access-secret-change-me"
-      JWT_REFRESH_SECRET: "dev-refresh-secret-change-me"
-      ACCESS_TOKEN_TTL: "900s"
-      REFRESH_TOKEN_TTL_DAYS: "30"
+      NODE_ENV: "production"
+      # 必须在 server/.env 里设置一个强随机密钥（否则 compose 拒绝启动）。
+      # 生成：  openssl rand -hex 32   或   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      JWT_SECRET: "${JWT_SECRET:?请在 server/.env 设置强随机 JWT_SECRET 再 up}"
+      ACCESS_TOKEN_TTL: "${ACCESS_TOKEN_TTL:-900s}"
+      REFRESH_TOKEN_TTL_DAYS: "${REFRESH_TOKEN_TTL_DAYS:-30}"
       PORT: "3000"
     ports:
       - "3000:3000"

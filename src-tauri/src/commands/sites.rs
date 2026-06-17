@@ -152,6 +152,42 @@ pub fn sites_refresh_favicon(app: AppHandle, db: State<'_, DbState>, id: i64) ->
     Ok(s)
 }
 
+/// 给所有还没图标且未删除的网站后台抓 favicon。
+/// 同步只传 url/元数据、不传图标字节（见 plan Phase 3）；拉到新站点后由各设备自取。
+pub fn refetch_missing_favicons(app: AppHandle) {
+    std::thread::spawn(move || {
+        let Some(db) = app.try_state::<DbState>() else {
+            return;
+        };
+        let targets: Vec<(i64, String)> = {
+            let conn = db.0.lock();
+            let mut stmt = match conn.prepare(
+                "SELECT id, url FROM sites WHERE favicon_blob IS NULL AND deleted_at IS NULL",
+            ) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let mapped = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)));
+            match mapped {
+                Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+                Err(_) => return,
+            }
+        };
+        let mut any = false;
+        for (id, url) in targets {
+            if let Some((bytes, mime)) = fetch_favicon(&url) {
+                let conn = db.0.lock();
+                if db::sites::set_favicon(&conn, id, Some(&bytes), Some(&mime)).is_ok() {
+                    any = true;
+                }
+            }
+        }
+        if any {
+            events::emit_sites_changed(&app);
+        }
+    });
+}
+
 #[tauri::command]
 pub fn sites_open(app: AppHandle, db: State<'_, DbState>, id: i64) -> AppResult<()> {
     let url = {

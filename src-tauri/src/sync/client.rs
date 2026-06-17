@@ -199,3 +199,68 @@ impl Client {
         Self::parse(resp)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn prompt_change(uuid: &str, updated_at: i64, title: &str) -> Change {
+        Change {
+            entity: "prompt".into(),
+            uuid: uuid.into(),
+            updated_at,
+            deleted_at: None,
+            data: json!({
+                "title": title, "content": "x", "is_favorite": false, "is_pinned": false,
+                "created_at": 1, "folder_uuid": null, "tag_uuids": []
+            }),
+            seq: 0,
+        }
+    }
+
+    // 实机集成测试：验证 Rust 客户端 ↔ 真实服务端的序列化/LWW 全链路。
+    // 需要本地服务端在 http://localhost:3000（或设 SYNC_TEST_URL）。默认 #[ignore]，手动跑：
+    //   cargo test --manifest-path src-tauri/Cargo.toml --lib sync::client::tests -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_register_push_pull_lww() {
+        let base =
+            std::env::var("SYNC_TEST_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+        let c = Client::new(&base);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let email = format!("rust{nanos}@test.io");
+        let auth = c.register(&email, "password123").expect("register");
+        assert!(!auth.access.is_empty(), "got access token");
+
+        let uuid = "22222222-2222-4222-8222-222222222222";
+        let push = c
+            .push(&auth.access, &[prompt_change(uuid, 1000, "v1")])
+            .expect("push");
+        assert!(push.results[0].applied, "first push applied");
+
+        let pull = c.pull(&auth.access, 0, 100).expect("pull");
+        assert_eq!(pull.changes.len(), 1, "pull returns the pushed change");
+        assert_eq!(pull.changes[0].uuid, uuid);
+
+        // 更新覆盖。
+        let p2 = c
+            .push(&auth.access, &[prompt_change(uuid, 2000, "v2")])
+            .expect("push v2");
+        assert!(p2.results[0].applied);
+
+        // LWW：过期 push 被拒。
+        let stale = c
+            .push(&auth.access, &[prompt_change(uuid, 1500, "old")])
+            .expect("push stale");
+        assert!(!stale.results[0].applied, "stale push rejected by LWW");
+
+        // 从 cursor 0 再拉，应拿到 v2。
+        let pull2 = c.pull(&auth.access, 0, 100).expect("pull2");
+        let rec = pull2.changes.iter().find(|c| c.uuid == uuid).unwrap();
+        assert_eq!(rec.data["title"], "v2");
+    }
+}

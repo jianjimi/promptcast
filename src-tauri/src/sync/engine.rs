@@ -60,17 +60,25 @@ pub fn sync_once(app: &AppHandle) -> AppResult<Outcome> {
         for item in &resp.results {
             if item.applied {
                 if let Some(ch) = dirty.iter().find(|c| c.uuid == item.uuid) {
-                    sync_repo::clear_dirty(&conn, &ch.entity, &item.uuid)?;
+                    sync_repo::clear_dirty(&conn, &ch.entity, &item.uuid, ch.updated_at)?;
                     pushed += 1;
                 }
             }
         }
     }
 
-    // ---- PULL（翻页）----
+    // ---- PULL ----
+    // 全部翻页先收进 buffer，再全局排序后 apply：保证 folders/tags 全局先于 prompts，
+    // 即使一个 prompt 与它的 folder 落在不同分页也能解析引用（修跨页乱序）。
     let mut pulled = 0usize;
     let mut changed: HashSet<String> = HashSet::new();
-    for _ in 0..MAX_PAGES {
+    let mut buffer: Vec<crate::models::sync::Change> = Vec::new();
+    let mut pages = 0usize;
+    loop {
+        if pages >= MAX_PAGES {
+            tracing::warn!(pages, "pull hit MAX_PAGES cap; continuing next cycle");
+            break;
+        }
         let resp = match client.pull(&access, cursor, PULL_LIMIT) {
             Ok(r) => r,
             Err(SyncError::Unauthorized) => {
@@ -84,28 +92,43 @@ pub fn sync_once(app: &AppHandle) -> AppResult<Outcome> {
         if resp.changes.is_empty() {
             break;
         }
-        // 排序：folders/tags 先于 prompts（让 prompt 的 folder_uuid/tag_uuids 解析），sites 末。
-        let mut batch = resp.changes;
-        batch.sort_by_key(|c| entity_order(&c.entity));
-        {
-            let mut conn = db.0.lock();
-            for ch in &batch {
-                if sync_repo::apply_change(&mut conn, ch)? {
+        cursor = resp.next_cursor;
+        let has_more = resp.has_more;
+        buffer.extend(resp.changes);
+        pages += 1;
+        if !has_more {
+            break;
+        }
+    }
+    if !buffer.is_empty() {
+        buffer.sort_by(|a, b| {
+            entity_order(&a.entity)
+                .cmp(&entity_order(&b.entity))
+                .then(a.seq.cmp(&b.seq))
+        });
+        let mut conn = db.0.lock();
+        for ch in &buffer {
+            // 单条 apply 失败（坏数据 / 偶发约束冲突）只记日志 + 跳过，绝不让一条毒记录
+            // 卡死整条同步流 —— cursor 照常前进。
+            match sync_repo::apply_change(&mut conn, ch) {
+                Ok(true) => {
                     changed.insert(ch.entity.clone());
                     pulled += 1;
                 }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(entity = %ch.entity, uuid = %ch.uuid, error = %e, "apply_change failed; skipping record");
+                }
             }
-            sync_state::set_cursor(&conn, resp.next_cursor)?;
         }
-        cursor = resp.next_cursor;
-        if !resp.has_more {
-            break;
-        }
+        sync_state::set_cursor(&conn, cursor)?;
     }
 
     {
         let conn = db.0.lock();
         sync_repo::touch_synced(&conn)?;
+        // 清理已推送(dirty=0)的旧墓碑（保留 30 天），防止本地无限增长。
+        let _ = sync_repo::gc_tombstones(&conn, 30 * 24 * 3600 * 1000);
     }
 
     if changed.contains(ENTITY_FOLDER) {
@@ -119,6 +142,8 @@ pub fn sync_once(app: &AppHandle) -> AppResult<Outcome> {
     }
     if changed.contains(ENTITY_SITE) {
         events::emit_sites_changed(app);
+        // favicon 不走同步：拉到新/变更站点后，后台给缺图标的站点自取。
+        crate::commands::sites::refetch_missing_favicons(app.clone());
     }
 
     Ok(Outcome { pushed, pulled })
@@ -144,8 +169,12 @@ fn refresh_access(client: &Client, rt: &SyncRuntime) -> AppResult<String> {
             Ok(t.access)
         }
         Err(e) => {
-            clear_refresh();
-            *rt.access.lock() = None;
+            // 只有「确实无效」(401) 才清 refresh token（真登出）；网络/5xx/超时保留 token、
+            // 下拍重试，避免一次网络抖动把用户误登出（review #9）。
+            if matches!(e, SyncError::Unauthorized) {
+                clear_refresh();
+                *rt.access.lock() = None;
+            }
             Err(AppError::Internal(format!("refresh failed: {e}")))
         }
     }
