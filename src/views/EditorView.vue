@@ -5,6 +5,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { promptsGet, promptsCreate, promptsUpdate, promptsDelete } from "../api/prompts";
+import { ensureBackendReady } from "../api";
 import { foldersList } from "../api/folders";
 import { tagsList, tagsCreate } from "../api/tags";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -54,6 +55,7 @@ export default defineComponent({
   },
   async mounted() {
     log.info("EditorView mounted");
+    await ensureBackendReady();
     const id = this.$route.params.id;
     if (id) {
       this.isNew = false;

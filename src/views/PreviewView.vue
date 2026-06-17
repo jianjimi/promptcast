@@ -5,6 +5,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import { promptsGet } from "../api/prompts";
+import { ensureBackendReady } from "../api";
 import { foldersList } from "../api/folders";
 import { tagsList } from "../api/tags";
 import { injectPaste, injectCopyOnly } from "../api/inject";
@@ -61,6 +62,7 @@ export default defineComponent({
   },
   async mounted() {
     log.info("PreviewView mounted");
+    await ensureBackendReady();
     const settings = useSettingsStore();
     if (!settings.loaded) await settings.loadAll();
     applyPersistedTheme(settings.data.theme);

@@ -10,6 +10,7 @@ use tauri::WebviewWindow;
 use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
 use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows_sys::Win32::System::Threading::AttachThreadInput;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetForegroundWindow, GetWindowLongPtrW,
     GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongPtrW,
@@ -118,6 +119,60 @@ pub fn activate_hwnd(hwnd_raw: isize) -> bool {
         }
 
         tracing::info!(ok, target_tid, fg_tid, "activate_hwnd");
+        ok
+    }
+}
+
+/// 把我们自己（抽屉）的 HWND 抢到前台并给键盘焦点。
+/// 与 activate_hwnd 同理：从后台进程直接 SetForegroundWindow 会被前台锁拒绝（只闪任务栏），
+/// 先用 AttachThreadInput 把输入队列附加到当前前台线程，再抢前台 + SetFocus。
+/// 唤起路径（热键 / 托盘 / 单实例）必须在 show() 之后调用 —— HWND 要先可见。
+pub fn activate_self_hwnd(hwnd_raw: isize) -> bool {
+    if hwnd_raw == 0 {
+        return false;
+    }
+    let target: HWND = hwnd_raw as HWND;
+    unsafe {
+        let mut tpid: u32 = 0;
+        let target_tid = GetWindowThreadProcessId(target, &mut tpid as *mut u32);
+        let fg = GetForegroundWindow();
+        let fg_tid = if fg.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, std::ptr::null_mut())
+        };
+        let our_tid = windows_sys::Win32::System::Threading::GetCurrentThreadId();
+
+        // 抽屉若被最小化先还原。
+        if IsIconic(target) != 0 {
+            ShowWindow(target, SW_RESTORE);
+        }
+
+        // 附加到当前前台线程的输入队列 → 才能 SetForegroundWindow / SetFocus 成功。
+        let attached_fg = if fg_tid != 0 && fg_tid != our_tid {
+            AttachThreadInput(our_tid, fg_tid, 1) != 0
+        } else {
+            false
+        };
+        let attached_tg = if target_tid != 0 && target_tid != our_tid && target_tid != fg_tid {
+            AttachThreadInput(our_tid, target_tid, 1) != 0
+        } else {
+            false
+        };
+
+        let ok = SetForegroundWindow(target) != 0;
+        BringWindowToTop(target);
+        // SetFocus 必须在输入队列仍附加时调用，键盘焦点才会真正落到 webview。
+        SetFocus(target);
+
+        if attached_tg {
+            AttachThreadInput(our_tid, target_tid, 0);
+        }
+        if attached_fg {
+            AttachThreadInput(our_tid, fg_tid, 0);
+        }
+
+        tracing::info!(ok, target_tid, fg_tid, "activate_self_hwnd");
         ok
     }
 }

@@ -72,21 +72,35 @@ pub fn run() {
                 // 失焦自动隐藏（钉住时不隐藏）—— 点开别的 App / 打开编辑窗即收起，像 Raycast。
                 let app_h = app.handle().clone();
                 let dr = drawer.clone();
-                let started = std::time::Instant::now();
-                drawer.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Focused(false) = event {
-                        // 启动初期（终端仍在前台）不自动隐藏，避免一启动抽屉就消失。
-                        if started.elapsed() < std::time::Duration::from_millis(1200) {
+                // 启动初期终端仍在前台，抽屉会立刻收到一次 Focused(false)。改用「首次真正聚焦后
+                // 才生效」取代 1.2s 墙钟启发式：慢机冷启动 >1.2s 不再误隐藏，也不吞早期真实失焦。
+                let ever_focused = std::sync::atomic::AtomicBool::new(false);
+                drawer.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Focused(true) => {
+                        ever_focused.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    tauri::WindowEvent::Focused(false) => {
+                        // 还没真正聚焦过（启动阶段那次失焦）不隐藏。
+                        if !ever_focused.load(std::sync::atomic::Ordering::Relaxed) {
                             return;
                         }
                         let pinned = app_h
                             .state::<DrawerPinned>()
                             .0
                             .load(std::sync::atomic::Ordering::Relaxed);
-                        if !pinned {
-                            let _ = dr.hide();
+                        if pinned {
+                            return;
                         }
+                        // 焦点落到我们自己其它窗口（debug 的 devtools / editor / preview /
+                        // settings）时不隐藏 —— 否则 devtools 抢焦点会让抽屉「一出现就消失」。
+                        // 只有焦点真的切到别的 App（pid 不同）才收起，像 Raycast。
+                        let our_pid = std::process::id() as i32;
+                        if crate::platform::frontmost_app_pid() == Some(our_pid) {
+                            return;
+                        }
+                        let _ = dr.hide();
                     }
+                    _ => {}
                 });
             } else {
                 tracing::warn!("drawer window not found at startup");
@@ -98,6 +112,7 @@ pub fn run() {
             for label in ["editor", "preview", "settings"] {
                 if let Some(win) = app.get_webview_window(label) {
                     let hide_target = win.clone();
+                    let app_h = app.handle().clone();
                     win.on_window_event(move |event| {
                         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                             api.prevent_close();
@@ -106,6 +121,39 @@ pub fn run() {
                                 label = hide_target.label(),
                                 "close intercepted -> hidden"
                             );
+
+                            // 最后一个子窗关掉时，按 DrawerPinned 真相源恢复抽屉层级、并把焦点拉回抽屉。
+                            // 用「其它子窗是否仍可见」从实际状态推导，而非事件计数 —— 计数会因
+                            // is_visible() 偶发 Err / CloseRequested 双发而漂移。排除刚 hide 的这个窗，
+                            // 规避 Windows 上 hide() 异步未即时生效的误判。
+                            // makeKeyAndOrderFront(macOS) 是主线程 AppKit API，窗口事件不保证在主线程，
+                            // 必须 dispatch 到主线程，否则 UB。
+                            let closing = hide_target.label().to_string();
+                            let app2 = app_h.clone();
+                            let _ = app_h.run_on_main_thread(move || {
+                                let any_other_visible =
+                                    ["editor", "preview", "settings"].iter().any(|&l| {
+                                        l != closing.as_str()
+                                            && app2
+                                                .get_webview_window(l)
+                                                .and_then(|w| w.is_visible().ok())
+                                                .unwrap_or(false)
+                                    });
+                                if any_other_visible {
+                                    return;
+                                }
+                                if let Some(drawer) = app2.get_webview_window("drawer") {
+                                    let pinned = app2
+                                        .state::<DrawerPinned>()
+                                        .0
+                                        .load(std::sync::atomic::Ordering::Relaxed);
+                                    let _ = drawer.set_always_on_top(pinned);
+                                    // 子窗清空后焦点回抽屉（仍可见时），避免落到桌面。
+                                    if drawer.is_visible().unwrap_or(false) {
+                                        crate::platform::make_key(&drawer);
+                                    }
+                                }
+                            });
                         }
                     });
                 }
@@ -227,6 +275,7 @@ pub fn run() {
             commands::clipboard::clipboard_clear,
             register_hotkey_cmd,
             unregister_hotkey_cmd,
+            backend_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -245,6 +294,16 @@ fn unregister_hotkey_cmd(app: tauri::AppHandle) -> Result<(), String> {
     let _ = app.global_shortcut().unregister_all();
     tracing::info!("global hotkeys unregistered");
     Ok(())
+}
+
+/// 后端是否就绪：DbState 是否已 manage。
+/// 预声明窗口的 webview 在独立进程里启动，其 mounted 的 IPC 会和 setup() 里
+/// `app.manage(DbState)` 抢跑 —— 抢赢时命令报 "state not managed for db"，
+/// 导致该窗口数据加载失败、卡在「加载中」。前端启动时先轮询本命令直到 true 再加载，
+/// 用 try_state 永不报错（未就绪返回 false）。
+#[tauri::command]
+fn backend_ready(app: tauri::AppHandle) -> bool {
+    app.try_state::<DbState>().is_some()
 }
 
 /// 剪贴板历史监听循环（后台线程）。macOS 无变化事件，靠轮询 changeCount；

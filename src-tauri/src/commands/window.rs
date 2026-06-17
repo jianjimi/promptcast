@@ -38,9 +38,19 @@ fn show_singleton(
         }
     }
 
+    // 子窗要盖在抽屉之上：抽屉被钉住时是 topmost/浮层，会挡住子窗。show 之前先让它让出
+    // topmost —— 否则子窗可能先渲染在仍是 topmost 的抽屉之下。让位后子窗以普通层级 show+focus
+    // 即自然盖在抽屉上，无需把子窗也设 topmost（那会让编辑/设置窗永久浮在所有应用之上）。
+    // set_always_on_top 幂等：未钉住时设 false 是 no-op。抽屉层级在最后一个子窗关闭时由
+    // CloseRequested 处理按 DrawerPinned 真相源恢复。
+    if let Some(drawer) = app.get_webview_window("drawer") {
+        let _ = drawer.set_always_on_top(false);
+    }
+
     let _ = win.show();
     let _ = win.unminimize();
     let _ = win.set_focus();
+
     tracing::info!(label, target_hash, "window shown");
     Ok(WindowInfo {
         label: label.to_string(),
@@ -50,8 +60,11 @@ fn show_singleton(
 #[tauri::command]
 pub fn window_show_drawer(app: AppHandle) -> AppResult<()> {
     if let Some(w) = app.get_webview_window("drawer") {
+        // 与 summon_drawer / 热键唤起一致：先激活自己，show 后再抢前台 + 键盘焦点。
+        // 否则前端从后台态调用时（理论上）会和热键路径有同样的「抢不到焦点」问题。
+        crate::platform::activate_self();
         let _ = w.show();
-        let _ = w.set_focus();
+        crate::platform::make_key(&w);
     }
     Ok(())
 }

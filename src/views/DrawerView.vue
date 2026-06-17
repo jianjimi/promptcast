@@ -43,6 +43,7 @@ import {
   windowOpenPreview,
   windowHideDrawer,
 } from "../api/window";
+import { ensureBackendReady } from "../api";
 import { log } from "../utils/logger";
 
 import type { Prompt } from "../types/prompt";
@@ -144,6 +145,9 @@ export default defineComponent({
   },
   async mounted() {
     log.info("DrawerView mounted");
+    // 等后端 DbState 就绪再加载，否则会和 setup() 的 manage 抢跑、命令报
+    // "state not managed for db"，mounted 中途抛错 → 卡「加载中」、事件监听也没注册上。
+    await ensureBackendReady();
     // 先加载设置，恢复持久化的排序，再拉列表（否则总是回到「最近使用」）。
     await this.settings.loadAll();
     this.prompts.sortMode = this.settings.data.sort_mode;

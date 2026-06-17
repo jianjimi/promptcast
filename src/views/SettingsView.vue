@@ -25,7 +25,7 @@ import {
   permissionsCheckAccessibility,
   permissionsRequestAccessibility,
 } from "../api/inject";
-import { logDir } from "../api";
+import { logDir, ensureBackendReady } from "../api";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { setThemeMode, applyPersistedTheme } from "../composables/useTheme";
 import {
@@ -87,6 +87,7 @@ export default defineComponent({
   },
   async mounted() {
     log.info("SettingsView mounted");
+    await ensureBackendReady();
     if (!this.settings.loaded) await this.settings.loadAll();
     applyPersistedTheme(this.settings.data.theme);
     this.hotkeyDraft = this.settings.data.hotkey ?? "";

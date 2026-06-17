@@ -27,11 +27,19 @@ pub fn activate_self() {
     macos::activate_self();
 }
 
-/// 让窗口成为 key window 接收键盘事件。
+/// 让窗口成为 key window 接收键盘事件，并真正拉到前台。
 pub fn make_key(_window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     macos::make_key_and_order_front(_window);
-    // Windows: show() + set_focus() 已足够（去掉 WS_EX_NOACTIVATE 之后）。
+
+    // Windows: 从后台进程 set_focus() 受前台锁限制（只闪任务栏）。
+    // 必须用 AttachThreadInput 抢前台后再 SetFocus，否则唤起后抽屉拿不到键盘焦点。
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(h) = _window.hwnd() {
+            windows::activate_self_hwnd(h.0 as isize);
+        }
+    }
 }
 
 /// 返回当前 frontmost / foreground app 的 PID。

@@ -22,8 +22,6 @@ const NS_WINDOW_STYLE_MASK_RESIZABLE: u64 = 1 << 3;
 const NS_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
 const NS_COLLECTION_BEHAVIOR_FULLSCREEN_AUXILIARY: u64 = 1 << 8;
 
-const NS_FLOATING_WINDOW_LEVEL: i64 = 3;
-
 const NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY: i64 = 1;
 const NS_APPLICATION_ACTIVATE_IGNORING_OTHER_APPS: u64 = 1 << 1;
 
@@ -83,7 +81,8 @@ pub fn apply_panel_style(window: &WebviewWindow) {
         let _: () = msg_send![ns_window, setHidesOnDeactivate: false];
         let _: () = msg_send![ns_window, setMovable: true];
         let _: () = msg_send![ns_window, setMovableByWindowBackground: true];
-        let _: () = msg_send![ns_window, setLevel: NS_FLOATING_WINDOW_LEVEL];
+        // 窗口层级（浮动/正常）唯一由 window_set_pin → set_always_on_top 拥有。
+        // 这里不再手写 setLevel —— 否则 pin/unpin 会与之争夺、导致取消钉住后层级漂移。
 
         // 投影：透明 + 圆角窗需要显式开启并刷新，否则窗口边缘很「突兀」。
         // macOS 会按内容的不透明轮廓（圆角卡片）生成对应的圆角阴影。
