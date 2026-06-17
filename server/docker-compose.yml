@@ -1,0 +1,39 @@
+# 本机一键起：Postgres + 同步后端。
+#   docker compose up --build
+# 后端启动会跑 prisma migrate deploy，自动建表 + 序列。
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: promptcast
+      POSTGRES_PASSWORD: promptcast
+      POSTGRES_DB: promptcast
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U promptcast -d promptcast"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://promptcast:promptcast@postgres:5432/promptcast?schema=public"
+      JWT_SECRET: "dev-access-secret-change-me"
+      JWT_REFRESH_SECRET: "dev-refresh-secret-change-me"
+      ACCESS_TOKEN_TTL: "900s"
+      REFRESH_TOKEN_TTL_DAYS: "30"
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

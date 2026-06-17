@@ -1,0 +1,53 @@
+// PromptCast 同步后端 schema。
+// 设计要点（见 plan D4/D5）：
+//  - sync_records 是「通用薄存储」：data 为不透明 JSON，服务端不懂 prompt 结构。
+//  - 单调游标 seq：客户端「拉取自 seq 之后的变更」。seq 在每次 push 命中写入时取
+//    nextval(序列)，使更新过的记录总能被 seq>cursor 重新拉到。序列由 PrismaService
+//    在 onModuleInit 用 CREATE SEQUENCE IF NOT EXISTS 建好；push 用原生 SQL 显式取值。
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  refreshTokens RefreshToken[]
+  syncRecords   SyncRecord[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model SyncRecord {
+  userId    String  @map("user_id") @db.Uuid
+  entity    String
+  uuid      String  @db.Uuid
+  updatedAt BigInt  @map("updated_at") // 客户端墙钟毫秒，仅用于 LWW 平局判定
+  deletedAt BigInt? @map("deleted_at") // 软删墓碑
+  data      Json
+  seq       BigInt  @default(0) // 单调游标，由 push 原生 SQL 取 nextval 覆盖
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entity, uuid])
+  @@index([userId, seq])
+  @@map("sync_records")
+}
