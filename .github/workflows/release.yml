@@ -1,0 +1,97 @@
+# PromptCast 多平台发布 —— 打 tag（v*）即在三系统真机上打包并创建 GitHub Release（草稿）。
+#
+# 为什么用 GitHub Actions 而非 CNB：CNB 构建节点只有 Linux Docker（amd64/arm64），
+# 结构上无法产出 Windows .exe/.msi（需 Windows）与 macOS .dmg（需苹果机器）。
+# CNB 那条 .cnb.yml 仍负责 push 时的测试/lint；本 workflow 只负责发版打包。
+#
+# 流程：打 tag v0.2.0 → 三平台并行编译 → 产物自动传到一个「草稿」Release。
+# 你审一遍 → 发布 GitHub Release → 把同一批安装包再传一份到公开 CNB 仓库的 Release（国内可靠源）
+# → 用各自的下载直链填好 update.json → 上传 update.json → 客户端「检查更新」即可命中。
+#
+# 注：本项目用的是自建更新器（托管 JSON 清单），不是 Tauri 官方 updater，
+# 因此无需 minisign / TAURI_SIGNING_PRIVATE_KEY。macOS 包为 ad-hoc 未签名，
+# 拷到别的 Mac 首次打开需右键「打开」或 xattr 去隔离属性（见 RELEASE.md）。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # 也可在 Actions 页手动触发（用于演练）
+
+permissions:
+  contents: write # tauri-action 需要写权限来创建 Release / 上传资产
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS：通用二进制（一份 dmg 同时覆盖 Apple Silicon 与 Intel）。
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          # Windows：NSIS setup.exe + MSI。
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+          # Linux：AppImage + deb（更新器未覆盖 Linux，但顺手产出便于分发）。
+          - platform: ubuntu-22.04
+            args: ""
+            rust-targets: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11 # 与本地锁文件（lockfileVersion 9.0 / allowBuilds 语法）一致
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install Linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build app & upload to release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "PromptCast ${{ github.ref_name }}"
+          releaseBody: "本版本安装包见下方资产。国内用户可从 CNB 镜像下载（见 update.json）。"
+          # 草稿：三平台产物都传齐后由你手动发布，避免半成品 Release 被用户看到。
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

@@ -1,5 +1,7 @@
 {
-  "_comment": "PromptCast 更新清单示例。把本文件改名为 update.json 传到 CNB（或任意 https 静态托管），再把它的 raw 直链填到「设置 → 关于 → 更新清单地址」。版本号高于本机时会弹更新窗。",
+  "_comment": "PromptCast 更新清单模板。复制为 update.json，把 url 换成真实下载直链后，传到【公开】托管处（CNB 公开仓库 Release，国内可靠为主；GitHub Release 为备）。把它的 https 直链填到「设置 → 关于 → 更新清单地址」。客户端拉清单，发现 version 高于本机就弹更新窗。",
+  "_hosting": "更新器走匿名 GET，托管仓库必须是【公开】的；源码私有仓库 liuxiaogang/promptcast 不能直接用。url 必须 https（仅 localhost 可 http，便于本地测试）。sha256 可选，填了就强制校验——建议至少给 Windows/macOS 包填上（发版时用 shasum -a 256 <file> 取）。",
+  "_dual_host": "国内首选 CNB 直链做 url（cnb 不会有网络问题）；GitHub Release 直链留作备份记录在 _backup_github 里，该字段客户端不读，仅供你换源时复制。macOS 用通用包（universal.dmg），darwin-aarch64 与 darwin-x86_64 指向同一文件。",
 
   "version": "0.2.0",
   "title": "多设备同步与账户管理上线",
@@ -8,16 +10,22 @@
 
   "downloads": {
     "windows-x86_64": {
-      "url": "https://cnb.cool/<组>/<仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_x64-setup.exe",
-      "sha256": "在此填安装包的 sha256（小写十六进制；可选，填了就会强制校验）"
+      "url": "https://cnb.cool/<公开组>/<公开仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_x64-setup.exe",
+      "sha256": ""
     },
     "darwin-aarch64": {
-      "url": "https://cnb.cool/<组>/<仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_aarch64.dmg",
+      "url": "https://cnb.cool/<公开组>/<公开仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_universal.dmg",
       "sha256": ""
     },
     "darwin-x86_64": {
-      "url": "https://cnb.cool/<组>/<仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_x64.dmg",
+      "url": "https://cnb.cool/<公开组>/<公开仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_universal.dmg",
       "sha256": ""
     }
+  },
+
+  "_backup_github": {
+    "windows-x86_64": "https://github.com/<github用户>/<公开仓库>/releases/download/v0.2.0/PromptCast_0.2.0_x64-setup.exe",
+    "darwin-aarch64": "https://github.com/<github用户>/<公开仓库>/releases/download/v0.2.0/PromptCast_0.2.0_universal.dmg",
+    "darwin-x86_64": "https://github.com/<github用户>/<公开仓库>/releases/download/v0.2.0/PromptCast_0.2.0_universal.dmg"
   }
 }
