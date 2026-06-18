@@ -429,6 +429,14 @@ pub fn download_and_install(app: &AppHandle, url: &str) -> Result<(), UpdateErro
     launch_installer(&path)
 }
 
+/// 更新重启标记路径：自更新前写入，新实例启动时检测到则唤起主窗口（让用户知道已重启成功）并删除它。
+#[cfg(target_os = "macos")]
+pub fn relaunch_flag_path() -> PathBuf {
+    std::env::temp_dir()
+        .join("promptcast-update")
+        .join("relaunch.flag")
+}
+
 /// 当前运行的可执行文件所在的 `.app` 包路径（macOS）。开发构建（裸二进制）返回 None。
 #[cfg(target_os = "macos")]
 fn current_app_bundle() -> Option<PathBuf> {
@@ -453,6 +461,9 @@ fn macos_self_update(
     std::fs::write(&script_path, MACOS_UPDATE_SCRIPT).map_err(|e| UpdateError::Io(e.to_string()))?;
     std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
         .map_err(|e| UpdateError::Io(e.to_string()))?;
+
+    // 写重启标记：脚本重启后，新实例在启动时检测到它就唤起抽屉，告知用户「已更新并重启」。
+    let _ = std::fs::write(relaunch_flag_path(), "1");
 
     // 分离子进程：父进程退出后它被 init 收养、继续运行；用本进程 pid 作为「等谁退出」的目标。
     std::process::Command::new("/bin/sh")

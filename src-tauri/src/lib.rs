@@ -245,13 +245,43 @@ pub fn run() {
                 }
             }
 
-            // ---- 启动即检查辅助功能授权；未授权则主动弹系统引导框 ----
-            // 用户反馈「没有授权提醒」：原先只在设置页点按钮才弹，这里改为启动即弹。
+            // ---- 启动即检查辅助功能授权 ----
+            // ad-hoc 未签名 App 被更新替换后 cdhash 变化，macOS 会重置辅助功能授权，is_trusted() 变 false。
+            // 为避免「明明授权过、每次更新/重启又被反复要权限」：曾经授权过(ax_ever_granted)就不再启动自动弹；
+            // 注入未授权本就有剪贴板兜底，用户可随时在设置页「权限诊断」重新授权。
             #[cfg(target_os = "macos")]
             {
-                if !crate::platform::permissions::is_trusted() {
+                const AX_KEY: &str = "ax_ever_granted";
+                let trusted = crate::platform::permissions::is_trusted();
+                let ever_granted = {
+                    let db = app.state::<DbState>();
+                    let conn = db.0.lock();
+                    if trusted {
+                        let _ = crate::db::settings::set_raw(&conn, AX_KEY, "1");
+                        true
+                    } else {
+                        crate::db::settings::get_raw(&conn, AX_KEY).ok().flatten().as_deref()
+                            == Some("1")
+                    }
+                };
+                if !trusted && !ever_granted {
                     crate::platform::permissions::prompt_trust();
-                    tracing::info!("accessibility not granted; system prompt requested at startup");
+                    tracing::info!("accessibility not granted (first time); system prompt requested");
+                } else if !trusted {
+                    tracing::info!("accessibility not trusted but previously granted (likely post-update TCC reset); skip auto-prompt");
+                }
+
+                // 更新重启后：检测到标记则唤起抽屉，让用户知道已更新并重启成功。
+                let flag = crate::update::relaunch_flag_path();
+                if flag.exists() {
+                    let _ = std::fs::remove_file(&flag);
+                    let h = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(800));
+                        let h2 = h.clone();
+                        let _ = h.run_on_main_thread(move || summon_drawer(&h2));
+                    });
+                    tracing::info!("post-update launch detected; summoning drawer");
                 }
             }
 
