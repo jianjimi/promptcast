@@ -56,7 +56,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # pnpm 11 要求 Node ≥ 22.13；与本地（Node 24 / pnpm 11）一致
           cache: pnpm
 
       - name: Install Rust toolchain
