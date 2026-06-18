@@ -13,6 +13,7 @@ import ClipboardList from "../components/drawer/ClipboardList.vue";
 import SiteLauncher from "../components/drawer/SiteLauncher.vue";
 import HintBar from "../components/drawer/HintBar.vue";
 import BaseToast from "../components/ui/BaseToast.vue";
+import UpdateModal from "../components/UpdateModal.vue";
 
 import { usePromptsStore } from "../stores/prompts";
 import { useFoldersStore } from "../stores/folders";
@@ -21,6 +22,7 @@ import { useSitesStore } from "../stores/sites";
 import { useClipboardStore } from "../stores/clipboard";
 import { useSettingsStore } from "../stores/settings";
 import { useSyncStore } from "../stores/sync";
+import { useUpdateStore } from "../stores/update";
 import { useUIStore } from "../stores/ui";
 
 import { buildSearchable, searchPrompts } from "../composables/useFuzzySearch";
@@ -57,7 +59,7 @@ import type { SyncStatus } from "../types/sync";
 export default defineComponent({
   name: "DrawerView",
   components: {
-    SearchBar, FilterChips, PromptList, ClipboardList, SiteLauncher, HintBar, BaseToast,
+    SearchBar, FilterChips, PromptList, ClipboardList, SiteLauncher, HintBar, BaseToast, UpdateModal,
   },
   data() {
     return {
@@ -75,6 +77,7 @@ export default defineComponent({
     tags() { return useTagsStore(); },
     clip() { return useClipboardStore(); },
     syncStore() { return useSyncStore(); },
+    updateStore() { return useUpdateStore(); },
     syncBadge(): { show: boolean; cls: string; label: string } | null {
       const s = this.syncStore.status;
       if (!s.logged_in || !s.enabled) return null;
@@ -176,6 +179,8 @@ export default defineComponent({
     try { await this.syncStore.load(); } catch { /* 同步未配置/未登录 */ }
     document.addEventListener("keydown", this.onKey);
     await this.subscribeEvents();
+    // 启动静默查更新（未配置/无新版/出错都不打扰）；有新版才弹 UpdateModal。
+    void this.updateStore.check(false);
   },
   beforeUnmount() {
     document.removeEventListener("keydown", this.onKey);
@@ -434,6 +439,7 @@ export default defineComponent({
       {{ syncBadge.label }}
     </div>
     <BaseToast />
+    <UpdateModal />
 
     <!-- 列表右键菜单 -->
     <div

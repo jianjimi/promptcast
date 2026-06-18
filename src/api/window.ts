@@ -5,6 +5,8 @@ export const windowShowDrawer = () => invoke<void>("window_show_drawer");
 export const windowHideDrawer = () => invoke<void>("window_hide_drawer");
 export const windowSetPin = (pinned: boolean) =>
   invoke<void>("window_set_pin", { pinned });
+export const windowSetModalOpen = (open: boolean) =>
+  invoke<void>("window_set_modal_open", { open });
 export const windowOpenPreview = (id: number) =>
   invoke<{ label: string }>("window_open_preview", { id });
 export const windowOpenEditor = (id: number | null) =>

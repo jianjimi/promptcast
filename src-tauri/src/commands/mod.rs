@@ -10,4 +10,5 @@ pub mod settings;
 pub mod sites;
 pub mod sync;
 pub mod tags;
+pub mod update;
 pub mod window;

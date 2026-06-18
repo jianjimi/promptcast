@@ -1,0 +1,23 @@
+{
+  "_comment": "PromptCast 更新清单示例。把本文件改名为 update.json 传到 CNB（或任意 https 静态托管），再把它的 raw 直链填到「设置 → 关于 → 更新清单地址」。版本号高于本机时会弹更新窗。",
+
+  "version": "0.2.0",
+  "title": "多设备同步与账户管理上线",
+  "notes": "· 新增离线优先的多设备同步（提示词 / 文件夹 / 标签 / 网址）\n· 账户中心：注册 / 登录 / 改密码 / 删除账户 / 找回密码\n· 应用内检查更新\n· 若干稳定性修复",
+  "pub_date": "2026-06-18",
+
+  "downloads": {
+    "windows-x86_64": {
+      "url": "https://cnb.cool/<组>/<仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_x64-setup.exe",
+      "sha256": "在此填安装包的 sha256（小写十六进制；可选，填了就会强制校验）"
+    },
+    "darwin-aarch64": {
+      "url": "https://cnb.cool/<组>/<仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_aarch64.dmg",
+      "sha256": ""
+    },
+    "darwin-x86_64": {
+      "url": "https://cnb.cool/<组>/<仓库>/-/releases/download/v0.2.0/PromptCast_0.2.0_x64.dmg",
+      "sha256": ""
+    }
+  }
+}

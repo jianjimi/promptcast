@@ -16,6 +16,7 @@ import FoldersPanel from "../components/settings/FoldersPanel.vue";
 import SitesPanel from "../components/settings/SitesPanel.vue";
 import DataPanel from "../components/settings/DataPanel.vue";
 import BaseToast from "../components/ui/BaseToast.vue";
+import UpdateModal from "../components/UpdateModal.vue";
 
 import { useSettingsStore } from "../stores/settings";
 import {
@@ -40,6 +41,8 @@ import { useTagsStore } from "../stores/tags";
 import { useSitesStore } from "../stores/sites";
 import { useAuthStore } from "../stores/auth";
 import { useSyncStore } from "../stores/sync";
+import { useUpdateStore } from "../stores/update";
+import { useUIStore } from "../stores/ui";
 import type { SyncStatus } from "../types/sync";
 import { isMac, relativeTime } from "../utils/format";
 import { log } from "../utils/logger";
@@ -59,7 +62,7 @@ interface NavItem {
 export default defineComponent({
   name: "SettingsView",
   components: {
-    HotkeyRecorder, FoldersPanel, SitesPanel, DataPanel, BaseToast,
+    HotkeyRecorder, FoldersPanel, SitesPanel, DataPanel, BaseToast, UpdateModal,
     Sliders, Keyboard, Palette, FolderTree, Globe, Database,
     ShieldCheck, Info, X, SettingsIcon, FileText,
     Cloud, RefreshCw, LogOut,
@@ -72,6 +75,9 @@ export default defineComponent({
       isMacOS: isMac(),
       logsPath: "",
       appVer: "",
+      // 更新
+      updManifestDraft: "",
+      updBusy: false,
       // 账户 / 同步
       emailDraft: "",
       passwordDraft: "",
@@ -98,6 +104,8 @@ export default defineComponent({
     settings() { return useSettingsStore(); },
     auth() { return useAuthStore(); },
     sync() { return useSyncStore(); },
+    updateStore() { return useUpdateStore(); },
+    uiStore() { return useUIStore(); },
     appVersion(): string { return this.appVer || "…"; },
     lastSyncText(): string {
       const t = this.sync.status.last_sync_at;
@@ -129,6 +137,7 @@ export default defineComponent({
 
     try { await this.auth.load(); } catch { /* */ }
     try { await this.sync.load(); this.serverDraft = this.sync.serverUrl; } catch { /* */ }
+    try { await this.updateStore.loadManifestUrl(); this.updManifestDraft = this.updateStore.manifestUrl; } catch { /* */ }
 
     this.unlisteners.push(
       await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
@@ -192,6 +201,39 @@ export default defineComponent({
         await revealItemInDir(this.logsPath);
       } catch (e) {
         log.error(`open logs dir failed: ${e}`);
+      }
+    },
+    // ---- 更新 ----
+    async saveManifestUrl() {
+      try {
+        await this.updateStore.setManifestUrl(this.updManifestDraft.trim());
+        this.uiStore.pushToast("更新地址已保存", "success");
+      } catch (e) {
+        this.uiStore.pushToast(`保存更新地址失败: ${e}`, "danger");
+      }
+    },
+    async checkUpdates() {
+      if (this.updBusy) return;
+      this.updBusy = true;
+      try {
+        // 手动查前先存一下草稿地址，避免“改了没保存就查”查的是旧地址。
+        if (this.updManifestDraft.trim() !== this.updateStore.manifestUrl) {
+          await this.updateStore.setManifestUrl(this.updManifestDraft.trim());
+        }
+        if (!this.updateStore.manifestUrl) {
+          this.uiStore.pushToast("请先填写更新清单地址", "warning");
+          return;
+        }
+        const found = await this.updateStore.check(true);
+        if (!found) {
+          if (this.updateStore.error) {
+            this.uiStore.pushToast(`检查更新失败: ${this.updateStore.error}`, "danger");
+          } else {
+            this.uiStore.pushToast(`已是最新版本（v${this.appVersion}）`, "success");
+          }
+        }
+      } finally {
+        this.updBusy = false;
       }
     },
     // ---- 账户 / 同步 ----
@@ -647,12 +689,33 @@ export default defineComponent({
                 <div class="title">PromptCast</div>
                 <div class="sub">v{{ appVersion }} · MIT License</div>
               </div>
+              <span class="spacer" />
+              <button class="primary" :disabled="updBusy" @click="checkUpdates">
+                <RefreshCw :size="13" /> {{ updBusy ? "检查中…" : "检查更新" }}
+              </button>
+            </div>
+          </div>
+          <div class="card">
+            <label class="field">
+              <span class="flabel">更新清单地址（托管在 CNB 的 JSON）</span>
+              <div class="row">
+                <input
+                  v-model="updManifestDraft"
+                  class="inp"
+                  placeholder="https://cnb.cool/<组>/<仓库>/-/git/raw/main/update.json"
+                />
+                <button class="ghost" @click="saveManifestUrl">保存</button>
+              </div>
+            </label>
+            <div class="sub">
+              留空则不检查更新。启动时会静默检查一次，仅当有新版本时弹窗提示。
             </div>
           </div>
         </section>
       </main>
     </div>
     <BaseToast />
+    <UpdateModal />
   </div>
 </template>
 

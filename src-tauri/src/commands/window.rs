@@ -89,6 +89,28 @@ pub fn window_set_pin(app: AppHandle, pinned: bool) -> AppResult<()> {
     Ok(())
 }
 
+/// 抽屉上的模态弹窗开/关。打开时让抽屉置顶且失焦不自动隐藏；关闭时把置顶恢复成用户的 pin 状态。
+/// 与 window_set_pin 相互独立：不改 DrawerPinned，因此不会污染前端 pin 按钮高亮。
+#[tauri::command]
+pub fn window_set_modal_open(app: AppHandle, open: bool) -> AppResult<()> {
+    if let Some(w) = app.get_webview_window("drawer") {
+        if open {
+            let _ = w.set_always_on_top(true);
+        } else {
+            // 关闭弹窗：层级回落到用户原本的 pin 状态，不强行取消用户的钉住。
+            let pinned = app
+                .state::<crate::DrawerPinned>()
+                .0
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let _ = w.set_always_on_top(pinned);
+        }
+    }
+    app.state::<crate::DrawerModalOpen>()
+        .0
+        .store(open, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn window_open_preview(app: AppHandle, id: i64) -> AppResult<WindowInfo> {
     let hash = format!("#/preview/{id}");

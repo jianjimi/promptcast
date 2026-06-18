@@ -7,6 +7,7 @@ mod logging;
 mod models;
 mod platform;
 mod sync;
+mod update;
 
 use parking_lot::Mutex;
 use tauri::menu::MenuBuilder;
@@ -29,6 +30,10 @@ pub struct LastFrontmost(pub Mutex<FrontmostTarget>);
 
 /// 抽屉是否被「钉住」（钉住时失焦不自动隐藏）。由 window_set_pin 写。
 pub struct DrawerPinned(pub std::sync::atomic::AtomicBool);
+
+/// 抽屉上是否有模态弹窗打开（如更新提示）。打开时失焦也不自动隐藏，避免点别处把弹窗带走。
+/// 与用户的「钉住」相互独立：不污染 DrawerPinned / 前端 pin 按钮高亮。由 window_set_modal_open 写。
+pub struct DrawerModalOpen(pub std::sync::atomic::AtomicBool);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -59,6 +64,7 @@ pub fn run() {
             app.manage(state);
             app.manage(LastFrontmost(Mutex::new(FrontmostTarget::default())));
             app.manage(DrawerPinned(std::sync::atomic::AtomicBool::new(false)));
+            app.manage(DrawerModalOpen(std::sync::atomic::AtomicBool::new(false)));
             app.manage(crate::sync::SyncRuntime::default());
             // 重启后恢复会话：钥匙串有 refresh ⇒ 已登录；email 从 settings 取回供 UI 显示。
             // access token 不落盘，首次同步会用 refresh 换取。
@@ -109,6 +115,14 @@ pub fn run() {
                             .0
                             .load(std::sync::atomic::Ordering::Relaxed);
                         if pinned {
+                            return;
+                        }
+                        // 抽屉上有模态弹窗（更新提示等）时，失焦也不收起，避免点别处把弹窗带走。
+                        if app_h
+                            .state::<DrawerModalOpen>()
+                            .0
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                        {
                             return;
                         }
                         // 焦点落到我们自己其它窗口（debug 的 devtools / editor / preview /
@@ -293,6 +307,7 @@ pub fn run() {
             commands::window::window_show_drawer,
             commands::window::window_hide_drawer,
             commands::window::window_set_pin,
+            commands::window::window_set_modal_open,
             commands::window::window_open_preview,
             commands::window::window_open_editor,
             commands::window::window_open_settings,
@@ -315,6 +330,10 @@ pub fn run() {
             commands::sync::sync_now,
             commands::sync::sync_get_server_url,
             commands::sync::sync_set_server_url,
+            commands::update::update_check,
+            commands::update::update_download_install,
+            commands::update::update_get_manifest_url,
+            commands::update::update_set_manifest_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
