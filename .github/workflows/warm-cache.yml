@@ -1,0 +1,70 @@
+# 预热构建缓存 —— 仅在 main 上、且 Rust 源/依赖变动时跑一次 release 编译（不打包）。
+#
+# 为什么需要：GitHub Actions 缓存按 git ref 隔离，tag 触发的发版构建彼此看不到缓存，
+# 但都能读到【默认分支 main】的缓存。本工作流把 ~500 个依赖的编译产物预热进 main 作用域，
+# 之后 release.yml 的 tag 构建用同一 shared-key 即可命中 → 发版从 ~9 分钟降到 ~2-4 分钟。
+#
+# 公开仓库 Actions 分钟免费，且只在 src-tauri/依赖变更时触发，开销可接受。
+
+name: Warm Cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - ".github/workflows/warm-cache.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          shared-key: "tauri-release" # 必须与 release.yml 一致，才能被发版构建命中
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      # 只编译（含 universal 双架构），不打包；目的是把依赖编译产物写进缓存。
+      - name: Warm build (no bundle)
+        run: pnpm tauri build --no-bundle ${{ matrix.args }}
