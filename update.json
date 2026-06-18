@@ -1,21 +1,21 @@
 {
   "_comment": "PromptCast 线上更新清单（由 CI 自动生成；勿手改）。客户端预制读取本文件 raw 直链。",
-  "version": "0.0.4",
-  "title": "修复编辑删除/导出，分类条优化，剪贴板多选",
-  "notes": "· 编辑弹窗删除恢复可用（改用原生确认框）\n· 主窗口分类条只显示分类、可横向滚动\n· 导出可选择保存位置\n· 剪贴板支持多选：批量删除 / 合并粘贴 / 批量复制",
+  "version": "0.0.5",
+  "title": "启用新应用图标",
+  "notes": "· 更新 PromptCast 应用图标",
   "pub_date": "2026-06-18",
   "downloads": {
     "windows-x86_64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.4/PromptCast_0.0.4_x64-setup.exe",
-      "sha256": "2436f6cd790086cf351673b8a8b734a86cceb506fd0cc87c64ca8f39adcf9954"
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.5/PromptCast_0.0.5_x64-setup.exe",
+      "sha256": "77c325652ebad2e7a15411a909848479fbf4132d9c5d7ec967d70a8c6f65de3d"
     },
     "darwin-aarch64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.4/PromptCast_0.0.4_universal.dmg",
-      "sha256": "6d2be12d62e8ab2f4a8da81bc33fde82c67bd538459b6a7ad88c86fd1ca063c3"
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.5/PromptCast_0.0.5_universal.dmg",
+      "sha256": "a13259f824408681038db534c3c11196b9ad6ec1a393b1ebc9bfc3b0b0fc2adc"
     },
     "darwin-x86_64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.4/PromptCast_0.0.4_universal.dmg",
-      "sha256": "6d2be12d62e8ab2f4a8da81bc33fde82c67bd538459b6a7ad88c86fd1ca063c3"
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.5/PromptCast_0.0.5_universal.dmg",
+      "sha256": "a13259f824408681038db534c3c11196b9ad6ec1a393b1ebc9bfc3b0b0fc2adc"
     }
   }
 }
