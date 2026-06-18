@@ -12,6 +12,24 @@ import {
 import { EVT_UPDATE_PROGRESS } from "../composables/useAppEvents";
 import type { UpdateInfo, UpdateProgress } from "../types/update";
 
+// 抑制状态持久化在 localStorage（同源跨窗口共享，存活于应用重启）。
+const LS_SKIP = "pc.update.skipVersion"; // 用户「跳过当前版本」记住的版本号
+const LS_IGNORE = "pc.update.ignoreDate"; // 用户「今天忽略」的日期（YYYY-MM-DD）
+
+function lsGet(k: string): string {
+  try { return localStorage.getItem(k) ?? ""; } catch { return ""; }
+}
+function lsSet(k: string, v: string): void {
+  try { localStorage.setItem(k, v); } catch { /* 隐私模式等忽略 */ }
+}
+/** 本地日期 YYYY-MM-DD。 */
+function todayStr(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 interface State {
   info: UpdateInfo | null;
   visible: boolean;
@@ -21,6 +39,8 @@ interface State {
   progress: UpdateProgress;
   error: string | null;
   manifestUrl: string;
+  skippedVersion: string; // 被「跳过当前版本」抑制的版本
+  ignoredDate: string; // 被「今天忽略」抑制的日期
   unlisten: UnlistenFn | null;
 }
 
@@ -34,6 +54,8 @@ export const useUpdateStore = defineStore("update", {
     progress: { downloaded: 0, total: null },
     error: null,
     manifestUrl: "",
+    skippedVersion: lsGet(LS_SKIP),
+    ignoredDate: lsGet(LS_IGNORE),
     unlisten: null,
   }),
   getters: {
@@ -70,6 +92,13 @@ export const useUpdateStore = defineStore("update", {
         const info = await updateCheck();
         if (info) {
           this.info = info;
+          // 自动（静默）查会被「跳过当前版本 / 今天忽略」抑制，避免反复打扰；
+          // 手动查（设置页「检查更新」）一律照常弹，让用户随时能更新被跳过的版本。
+          const suppressed =
+            !manual &&
+            (info.version === this.skippedVersion ||
+              this.ignoredDate === todayStr());
+          if (suppressed) return false;
           // 复位上一轮下载残留，否则二次弹窗会带着 launched=true / 旧进度条出现。
           this.launched = false;
           this.progress = { downloaded: 0, total: null };
@@ -113,6 +142,20 @@ export const useUpdateStore = defineStore("update", {
           this.unlisten = null;
         }
       }
+    },
+    /** 跳过当前版本：记住该版本号，以后自动查到同一版本不再弹（手动查仍会弹）。 */
+    skipVersion(): void {
+      if (this.info) {
+        this.skippedVersion = this.info.version;
+        lsSet(LS_SKIP, this.skippedVersion);
+      }
+      this.dismiss();
+    },
+    /** 今天忽略：记住今天，今日内自动查不再弹；次日自动恢复。 */
+    ignoreToday(): void {
+      this.ignoredDate = todayStr();
+      lsSet(LS_IGNORE, this.ignoredDate);
+      this.dismiss();
     },
     dismiss(): void {
       this.visible = false;

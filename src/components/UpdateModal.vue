@@ -58,9 +58,17 @@ export default defineComponent({
       void this.store.startInstall();
     },
     later(): void {
-      // 下载中不允许点背景/稍后关闭，避免中断下载、丢掉进度监听。
+      // 下载中不允许点背景/关闭，避免中断下载、丢掉进度监听。
       if (this.store.downloading) return;
       this.store.dismiss();
+    },
+    skip(): void {
+      if (this.store.downloading) return;
+      this.store.skipVersion();
+    },
+    ignoreToday(): void {
+      if (this.store.downloading) return;
+      this.store.ignoreToday();
     },
   },
 });
@@ -108,17 +116,20 @@ export default defineComponent({
       </div>
 
       <div class="upd-actions">
-        <button class="ghost" :disabled="store.downloading" @click="later">
-          {{ store.launched ? "关闭" : "稍后" }}
-        </button>
-        <button
-          v-if="!store.launched"
-          class="primary"
-          :disabled="store.downloading"
-          @click="install"
-        >
-          {{ store.downloading ? "下载中…" : "下载并安装" }}
-        </button>
+        <template v-if="store.launched">
+          <button class="ghost" @click="later">关闭</button>
+        </template>
+        <template v-else>
+          <button class="ghost" :disabled="store.downloading" @click="skip">
+            跳过当前版本
+          </button>
+          <button class="ghost" :disabled="store.downloading" @click="ignoreToday">
+            今天忽略
+          </button>
+          <button class="primary" :disabled="store.downloading" @click="install">
+            {{ store.downloading ? "下载中…" : "立即更新" }}
+          </button>
+        </template>
       </div>
     </div>
   </div>

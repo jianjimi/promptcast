@@ -22,6 +22,11 @@ use tauri::{AppHandle, Emitter};
 const MANIFEST_URL_KEY: &str = "update_manifest_url";
 const PROGRESS_EVENT: &str = "update-progress";
 
+/// 预制更新清单地址（公开 GitHub 仓库的 raw 直链）。用户不可改、不在 UI 暴露——
+/// 「自动生成」即写死在这里；将来换源（如 CNB 镜像）改此常量重新发版即可。
+pub const DEFAULT_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/jianjimi/promptcast/main/update.json";
+
 // 同一时刻只允许一个下载在跑：清单/资产下载是固定临时路径，且更新窗在 drawer 与 settings
 // 两个 webview 各挂一份；两窗并发下载会抢同一个文件、进度也会串。compare_exchange 占坑。
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
@@ -144,16 +149,15 @@ fn parse_triple(s: &str) -> Option<(u64, u64, u64)> {
     Some((a, b, c))
 }
 
-fn manifest_url(conn: &rusqlite::Connection) -> Option<String> {
+/// 返回清单地址：DB 显式存了非空地址则以 DB 为准（仅供本地测试的 IPC 后门，UI 不暴露），
+/// 否则用预制常量。即「自动生成、用户改不了」——前端没有任何入口能写它。
+pub fn get_manifest_url(conn: &rusqlite::Connection) -> String {
     crate::db::settings::get_raw(conn, MANIFEST_URL_KEY)
         .ok()
         .flatten()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-}
-
-pub fn get_manifest_url(conn: &rusqlite::Connection) -> String {
-    manifest_url(conn).unwrap_or_default()
+        .unwrap_or_else(|| DEFAULT_MANIFEST_URL.to_string())
 }
 
 pub fn set_manifest_url(conn: &rusqlite::Connection, url: &str) -> crate::error::AppResult<()> {

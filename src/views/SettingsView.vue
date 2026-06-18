@@ -75,8 +75,7 @@ export default defineComponent({
       isMacOS: isMac(),
       logsPath: "",
       appVer: "",
-      // 更新
-      updManifestDraft: "",
+      // 更新（清单地址已预制在后端，不再可配置）
       updBusy: false,
       // 账户 / 同步
       emailDraft: "",
@@ -137,7 +136,6 @@ export default defineComponent({
 
     try { await this.auth.load(); } catch { /* */ }
     try { await this.sync.load(); this.serverDraft = this.sync.serverUrl; } catch { /* */ }
-    try { await this.updateStore.loadManifestUrl(); this.updManifestDraft = this.updateStore.manifestUrl; } catch { /* */ }
 
     this.unlisteners.push(
       await listenAppEvent<ThemeMode>(EVT_THEME_CHANGED, (m) => applyPersistedTheme(m)),
@@ -204,26 +202,11 @@ export default defineComponent({
       }
     },
     // ---- 更新 ----
-    async saveManifestUrl() {
-      try {
-        await this.updateStore.setManifestUrl(this.updManifestDraft.trim());
-        this.uiStore.pushToast("更新地址已保存", "success");
-      } catch (e) {
-        this.uiStore.pushToast(`保存更新地址失败: ${e}`, "danger");
-      }
-    },
+    // 清单地址已预制在后端（不可配置）。手动查一律弹窗（即使该版本被「跳过」过）。
     async checkUpdates() {
       if (this.updBusy) return;
       this.updBusy = true;
       try {
-        // 手动查前先存一下草稿地址，避免“改了没保存就查”查的是旧地址。
-        if (this.updManifestDraft.trim() !== this.updateStore.manifestUrl) {
-          await this.updateStore.setManifestUrl(this.updManifestDraft.trim());
-        }
-        if (!this.updateStore.manifestUrl) {
-          this.uiStore.pushToast("请先填写更新清单地址", "warning");
-          return;
-        }
         const found = await this.updateStore.check(true);
         if (!found) {
           if (this.updateStore.error) {
@@ -694,21 +677,9 @@ export default defineComponent({
                 <RefreshCw :size="13" /> {{ updBusy ? "检查中…" : "检查更新" }}
               </button>
             </div>
-          </div>
-          <div class="card">
-            <label class="field">
-              <span class="flabel">更新清单地址（托管在 CNB 的 JSON）</span>
-              <div class="row">
-                <input
-                  v-model="updManifestDraft"
-                  class="inp"
-                  placeholder="https://cnb.cool/<组>/<仓库>/-/git/raw/main/update.json"
-                />
-                <button class="ghost" @click="saveManifestUrl">保存</button>
-              </div>
-            </label>
             <div class="sub">
-              留空则不检查更新。启动时会静默检查一次，仅当有新版本时弹窗提示。
+              已开启自动更新：启动时及每 30 分钟静默检查一次，发现新版本才弹窗提示。
+              可在弹窗里选择「跳过当前版本」或「今天忽略」以减少打扰。
             </div>
           </div>
         </section>
