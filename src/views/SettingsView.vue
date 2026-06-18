@@ -45,6 +45,7 @@ import { useUpdateStore } from "../stores/update";
 import { useUIStore } from "../stores/ui";
 import type { SyncStatus } from "../types/sync";
 import { isMac, relativeTime } from "../utils/format";
+import { confirmDanger } from "../utils/dialog";
 import { log } from "../utils/logger";
 import { getVersion } from "@tauri-apps/api/app";
 import type { ThemeMode } from "../types/settings";
@@ -267,7 +268,7 @@ export default defineComponent({
       finally { this.acctBusy = false; }
     },
     async doDeleteAccount() {
-      if (!confirm("确认删除账户？不可撤销，本机已同步的数据也会被清除。")) return;
+      if (!(await confirmDanger("确认删除账户？不可撤销，本机已同步的数据也会被清除。", "删除账户"))) return;
       this.authErr = "";
       this.acctBusy = true;
       try {

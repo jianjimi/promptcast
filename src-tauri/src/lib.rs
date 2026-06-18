@@ -43,6 +43,7 @@ pub fn run() {
             let app2 = app.clone();
             let _ = app.run_on_main_thread(move || summon_drawer(&app2));
         }))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -292,6 +293,7 @@ pub fn run() {
             commands::settings::settings_get_all,
             commands::settings::settings_set,
             commands::data::data_export_json,
+            commands::data::data_export_to_file,
             commands::data::data_import_json,
             commands::sites::sites_list,
             commands::sites::sites_create,

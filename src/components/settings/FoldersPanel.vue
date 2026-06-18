@@ -4,6 +4,7 @@ import { defineComponent } from "vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { GripVertical, Pencil, Trash2 } from "lucide-vue-next";
 import { useFoldersStore } from "../../stores/folders";
+import { confirmDanger } from "../../utils/dialog";
 
 export default defineComponent({
   name: "FoldersPanel",
@@ -40,7 +41,7 @@ export default defineComponent({
       if (v) await this.folders.rename(id, v);
     },
     async remove(id: number) {
-      if (!confirm("删除这个分类？里面的提示词会变为未分类。")) return;
+      if (!(await confirmDanger("删除这个分类？里面的提示词会变为未分类。", "删除分类"))) return;
       await this.folders.remove(id);
     },
     async onDragEnd() {

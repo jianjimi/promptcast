@@ -1,7 +1,8 @@
 <!-- DataPanel.vue — 导入 / 导出 JSON。 -->
 <script lang="ts">
 import { defineComponent } from "vue";
-import { dataExportJson, dataImportJson } from "../../api/data";
+import { save } from "@tauri-apps/plugin-dialog";
+import { dataExportToFile, dataImportJson } from "../../api/data";
 import { useUIStore } from "../../stores/ui";
 import { usePromptsStore } from "../../stores/prompts";
 import { useFoldersStore } from "../../stores/folders";
@@ -17,18 +18,28 @@ export default defineComponent({
   },
   methods: {
     async exportJson() {
+      // 旧实现用 <a download> blob 下载，Tauri webview 不支持，点了没反应。
+      // 改用原生保存对话框选位置，再由后端写文件。
+      let path: string | null = null;
+      try {
+        path = await save({
+          defaultPath: `promptcast-backup-${Date.now()}.json`,
+          filters: [{ name: "JSON", extensions: ["json"] }],
+        });
+      } catch (e) {
+        useUIStore().pushToast(`打开保存对话框失败: ${e}`, "danger");
+        return;
+      }
+      if (!path) return; // 用户取消
       this.busy = true;
       try {
-        const json = await dataExportJson();
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `prompt-hub-${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+        await dataExportToFile(path);
         useUIStore().pushToast("已导出 JSON", "success");
-      } finally { this.busy = false; }
+      } catch (e) {
+        useUIStore().pushToast(`导出失败: ${e}`, "danger");
+      } finally {
+        this.busy = false;
+      }
     },
     pickFile() {
       (this.$refs.file as HTMLInputElement).click();

@@ -14,6 +14,7 @@ import type { Tag } from "../types/tag";
 import BaseToast from "../components/ui/BaseToast.vue";
 import { Eye, EyeOff, X, Trash2, Check } from "lucide-vue-next";
 import { useUIStore } from "../stores/ui";
+import { confirmDanger } from "../utils/dialog";
 import { useSettingsStore } from "../stores/settings";
 import { applyPersistedTheme } from "../composables/useTheme";
 import {
@@ -138,14 +139,18 @@ export default defineComponent({
       }
     },
     async cancel() {
-      if (this.dirty && !confirm("放弃未保存的修改？")) return;
+      if (this.dirty && !(await confirmDanger("放弃未保存的修改？", "放弃修改"))) return;
       getCurrentWebviewWindow().close();
     },
     async remove() {
       if (!this.promptId) return;
-      if (!confirm(`确认删除「${this.title}」？此操作不可撤销。`)) return;
-      await promptsDelete(this.promptId);
-      getCurrentWebviewWindow().close();
+      if (!(await confirmDanger(`确认删除「${this.title}」？此操作不可撤销。`, "删除提示词"))) return;
+      try {
+        await promptsDelete(this.promptId);
+        getCurrentWebviewWindow().close();
+      } catch (e) {
+        useUIStore().pushToast(`删除失败: ${e}`, "danger");
+      }
     },
     onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {

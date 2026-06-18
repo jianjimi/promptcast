@@ -4,6 +4,7 @@ import { defineComponent } from "vue";
 import { VueDraggable } from "vue-draggable-plus";
 import { GripVertical, Pencil, Trash2, RefreshCw, Check, X } from "lucide-vue-next";
 import { useSitesStore } from "../../stores/sites";
+import { confirmDanger } from "../../utils/dialog";
 
 export default defineComponent({
   name: "SitesPanel",
@@ -47,7 +48,7 @@ export default defineComponent({
       this.editingId = null;
     },
     async remove(id: number) {
-      if (!confirm("删除这个网址？")) return;
+      if (!(await confirmDanger("删除这个网址？", "删除网址"))) return;
       await this.sites.remove(id);
     },
     async refresh(id: number) {

@@ -25,6 +25,7 @@ import { useSyncStore } from "../stores/sync";
 import { useUpdateStore } from "../stores/update";
 import { useUIStore } from "../stores/ui";
 
+import { confirmDanger } from "../utils/dialog";
 import { buildSearchable, searchPrompts } from "../composables/useFuzzySearch";
 import { applyPersistedTheme } from "../composables/useTheme";
 import {
@@ -251,6 +252,34 @@ export default defineComponent({
       try { await this.clip.remove(id); }
       catch (e) { log.error(`deleteClip failed: ${e}`); }
     },
+    // ---- 剪贴板批量操作（多选）----
+    clipsContent(ids: number[]): string {
+      const byId = new Map(this.clip.list.map((c) => [c.id, c.content]));
+      return ids.map((id) => byId.get(id) ?? "").filter((s) => s.length > 0).join("\n");
+    },
+    async bulkPasteClips(ids: number[]) {
+      const text = this.clipsContent(ids);
+      if (!text) return;
+      try {
+        const r = await injectPaste(text);
+        if (!r.ok) this.ui.pushToast(r.message ?? "注入失败 · 已复制到剪贴板", "warning");
+      } catch (e) {
+        this.ui.pushToast(`注入失败: ${e}`, "danger");
+      }
+    },
+    async bulkCopyClips(ids: number[]) {
+      const text = this.clipsContent(ids);
+      if (!text) return;
+      await injectCopyOnly(text);
+      this.ui.pushToast(`已复制 ${ids.length} 条到剪贴板`, "success");
+      await windowHideDrawer();
+    },
+    async bulkDeleteClips(ids: number[]) {
+      if (!ids.length) return;
+      if (!(await confirmDanger(`删除选中的 ${ids.length} 条剪贴板记录？`, "批量删除"))) return;
+      try { await this.clip.removeMany(ids); }
+      catch (e) { log.error(`bulkDeleteClips failed: ${e}`); }
+    },
     async copyClipSelected() {
       const c = this.selectedClip();
       if (!c) return;
@@ -296,7 +325,7 @@ export default defineComponent({
     async ctxDelete() {
       const p = this.ctxTarget; this.closeCtx();
       if (!p) return;
-      if (!confirm(`删除「${p.title}」？此操作不可撤销。`)) return;
+      if (!(await confirmDanger(`删除「${p.title}」？此操作不可撤销。`, "删除提示词"))) return;
       try { await this.prompts.remove(p.id); }
       catch (e) { log.error(`delete failed: ${e}`); }
     },
@@ -427,9 +456,11 @@ export default defineComponent({
       v-else
       :entries="clipFiltered"
       :selected-id="clipSelectedId"
-      @select="onClipSelect"
       @inject="injectClip"
       @delete="deleteClip"
+      @bulk-delete="bulkDeleteClips"
+      @bulk-paste="bulkPasteClips"
+      @bulk-copy="bulkCopyClips"
     />
     <SiteLauncher />
     <HintBar :count="isClip ? clipFiltered.length : searched.length" />

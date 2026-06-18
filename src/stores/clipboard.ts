@@ -22,6 +22,10 @@ export const useClipboardStore = defineStore("clipboard", {
       await clipboardDelete(id);
       await this.loadAll();
     },
+    async removeMany(ids: number[]): Promise<void> {
+      for (const id of ids) await clipboardDelete(id);
+      await this.loadAll();
+    },
     async clear(): Promise<void> {
       await clipboardClear();
       this.list = [];

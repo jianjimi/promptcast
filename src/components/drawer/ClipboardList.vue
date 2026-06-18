@@ -1,6 +1,8 @@
 <!--
   ClipboardList.vue — 剪贴板历史列表（「剪贴板」分类 chip 选中时显示）。
-  click 选中；Enter / 箭头按钮 = 注入；垃圾桶 = 删除。复用与 PromptList 一致的视觉。
+  交互：每项前常驻多选框；鼠标点击行/勾选框 = 多选；选中≥1 时顶部出现工具条
+  （合并粘贴 / 批量复制 / 批量删除）。键盘上下移动高亮、回车注入由父组件 DrawerView 处理。
+  单条操作：悬停出现注入按钮、垃圾桶删除按钮。
 -->
 <script lang="ts">
 import { defineComponent, type PropType } from "vue";
@@ -16,9 +18,14 @@ export default defineComponent({
     selectedId: { type: Number as PropType<number | null>, default: null },
   },
   emits: {
-    select: (_id: number) => true,
     inject: (_id: number) => true,
     delete: (_id: number) => true,
+    bulkDelete: (_ids: number[]) => true,
+    bulkPaste: (_ids: number[]) => true,
+    bulkCopy: (_ids: number[]) => true,
+  },
+  data() {
+    return { checked: [] as number[] };
   },
   watch: {
     selectedId(id: number | null) {
@@ -28,22 +35,57 @@ export default defineComponent({
         el?.scrollIntoView({ block: "nearest" });
       });
     },
+    // 列表变化（如删除后重载）时，剔除已不存在的勾选项，避免“幽灵选中”。
+    entries(list: ClipEntry[]) {
+      const ids = new Set(list.map((c) => c.id));
+      this.checked = this.checked.filter((id) => ids.has(id));
+    },
   },
   methods: {
     preview(c: ClipEntry): string { return snippet(c.content, 100); },
     time(c: ClipEntry): string { return relativeTime(c.created_at); },
+    isChecked(id: number): boolean { return this.checked.includes(id); },
+    toggle(id: number): void {
+      const i = this.checked.indexOf(id);
+      if (i >= 0) this.checked.splice(i, 1);
+      else this.checked.push(id);
+    },
+    clearChecked(): void { this.checked = []; },
+    // 按列表显示顺序回传选中的 id，便于父组件按序拼接内容。
+    orderedChecked(): number[] {
+      return this.entries.filter((c) => this.checked.includes(c.id)).map((c) => c.id);
+    },
+    bulkDelete(): void { this.$emit("bulkDelete", this.orderedChecked()); },
+    bulkPaste(): void { this.$emit("bulkPaste", this.orderedChecked()); this.clearChecked(); },
+    bulkCopy(): void { this.$emit("bulkCopy", this.orderedChecked()); this.clearChecked(); },
   },
 });
 </script>
 
 <template>
   <div class="list">
+    <div v-if="checked.length" class="bulkbar">
+      <span class="cnt">已选 {{ checked.length }}</span>
+      <button type="button" class="tbtn" @click="clearChecked">取消</button>
+      <span class="spacer" />
+      <button type="button" class="tbtn" @click="bulkPaste">合并粘贴</button>
+      <button type="button" class="tbtn" @click="bulkCopy">批量复制</button>
+      <button type="button" class="tbtn danger" @click="bulkDelete">删除</button>
+    </div>
+
     <div v-for="c in entries" :key="c.id" :data-id="c.id">
       <div
         class="item"
-        :class="{ selected: c.id === selectedId }"
-        @click="$emit('select', c.id)"
+        :class="{ selected: c.id === selectedId, checked: isChecked(c.id) }"
+        @click="toggle(c.id)"
       >
+        <input
+          type="checkbox"
+          class="cbx"
+          :checked="isChecked(c.id)"
+          @click.stop="toggle(c.id)"
+          title="多选"
+        />
         <div class="main">
           <div class="text">{{ preview(c) }}</div>
           <div class="meta">{{ time(c) }} · {{ c.char_count }} 字</div>
@@ -77,9 +119,36 @@ export default defineComponent({
 
 <style scoped>
 .list { flex: 1; overflow-y: auto; padding: 4px 8px 8px; }
+.bulkbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px;
+  margin-bottom: 4px;
+  background: var(--bg-titlebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.bulkbar .cnt { font-size: 11px; color: var(--text-secondary); }
+.bulkbar .spacer { flex: 1; }
+.tbtn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.tbtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tbtn.danger { color: var(--danger); border-color: transparent; }
 .item {
   display: flex;
   gap: 8px;
+  align-items: flex-start;
   padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
@@ -90,6 +159,15 @@ export default defineComponent({
 .item.selected {
   background: var(--bg-selected);
   box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.item.checked { background: var(--accent-soft); }
+.cbx {
+  margin-top: 2px;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
 }
 .main { flex: 1; min-width: 0; }
 .text {

@@ -53,6 +53,20 @@ pub fn data_export_json(db: State<'_, DbState>) -> AppResult<String> {
     Ok(serde_json::to_string_pretty(&snap)?)
 }
 
+/// 导出到用户选定的文件路径（前端用 dialog.save 取路径）。
+/// 短锁取数据 → 释放锁 → 写文件，避免写盘期间占着唯一 DB 连接。
+#[tauri::command]
+pub fn data_export_to_file(db: State<'_, DbState>, path: String) -> AppResult<()> {
+    let json = {
+        let conn = db.0.lock();
+        let snap = export_snapshot(&conn)?;
+        serde_json::to_string_pretty(&snap)?
+    };
+    std::fs::write(&path, json)
+        .map_err(|e| crate::error::AppError::Internal(format!("写入导出文件失败: {e}")))?;
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ImportArgs {
     pub json: String,

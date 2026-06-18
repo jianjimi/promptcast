@@ -1,16 +1,15 @@
 <!-- FilterChips.vue — 横向 chip 筛选；Tab/Shift+Tab 循环。 -->
 <script lang="ts">
-import { defineComponent, type PropType } from "vue";
+import { defineComponent, markRaw, type Component, type PropType } from "vue";
+import { Star, Clipboard } from "lucide-vue-next";
 import { useUIStore } from "../../stores/ui";
 import { useFoldersStore } from "../../stores/folders";
-import { useTagsStore } from "../../stores/tags";
 import type { Folder } from "../../types/folder";
-import type { Tag } from "../../types/tag";
 
 interface Chip {
   key: string;
   label: string;
-  icon?: string;
+  icon?: Component; // lucide 图标组件（不用 emoji）
 }
 
 export default defineComponent({
@@ -24,14 +23,13 @@ export default defineComponent({
   computed: {
     ui() { return useUIStore(); },
     chips(): Chip[] {
+      // 只放固定项 + 文件夹分类；标签不再进分类条（标签多了会把这一行撑得很长）。
       const folders = useFoldersStore().list as Folder[];
-      const tags = useTagsStore().list as Tag[];
       return [
         { key: "all", label: "全部" },
-        { key: "favorites", label: "收藏", icon: "★" },
-        { key: "clipboard", label: "剪贴板", icon: "📋" },
+        { key: "favorites", label: "收藏", icon: markRaw(Star) },
+        { key: "clipboard", label: "剪贴板", icon: markRaw(Clipboard) },
         ...folders.map((f) => ({ key: `folder:${f.id}`, label: f.name })),
-        ...tags.map((t) => ({ key: `tag:${t.id}`, label: `#${t.name}` })),
       ];
     },
     activeIdx(): number {
@@ -45,6 +43,10 @@ export default defineComponent({
       if (!list.find((c) => c.key === this.ui.activeChipKey)) {
         this.ui.activeChipKey = "all";
       }
+    },
+    // 选中项变化（Tab 循环 / 点击）时，把它滚进可视区，使超出窗口的分类也能看到。
+    activeIdx() {
+      this.$nextTick(() => this.scrollActiveIntoView());
     },
   },
   mounted() {
@@ -70,6 +72,10 @@ export default defineComponent({
     select(key: string) {
       this.ui.activeChipKey = key;
     },
+    scrollActiveIntoView() {
+      const el = (this.$el as HTMLElement)?.querySelector?.(".chip.active") as HTMLElement | null;
+      el?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    },
     countOf(key: string): number | null {
       const v = this.counts[key];
       return Number.isFinite(v) ? v : null;
@@ -87,7 +93,7 @@ export default defineComponent({
       :class="{ active: c.key === ui.activeChipKey }"
       @click="select(c.key)"
     >
-      <span v-if="c.icon" class="ico">{{ c.icon }}</span>
+      <component :is="c.icon" v-if="c.icon" :size="12" class="ico" />
       <span>{{ c.label }}</span>
       <span v-if="countOf(c.key) !== null" class="count">{{ countOf(c.key) }}</span>
     </button>
@@ -98,13 +104,20 @@ export default defineComponent({
 .chips {
   display: flex;
   gap: 6px;
-  padding: 0 12px 8px;
+  padding: 0 12px 6px;
   overflow-x: auto;
-  scrollbar-width: none;
+  overflow-y: hidden;
+  scrollbar-width: thin; /* Firefox：细滚动条 */
   border-bottom: 1px solid var(--border);
   background: var(--bg-titlebar);
 }
-.chips::-webkit-scrollbar { display: none; }
+/* 分类多到超出窗口时显示一条细横向滚动条，可左右滑动看到后面的分类。 */
+.chips::-webkit-scrollbar { height: 6px; }
+.chips::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+.chips::-webkit-scrollbar-track { background: transparent; }
 
 .chip {
   flex-shrink: 0;

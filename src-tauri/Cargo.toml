@@ -1,6 +1,6 @@
 [package]
 name = "prompt-manager"
-version = "0.0.3"
+version = "0.0.4"
 description = "Prompt Hub — cross-platform prompt manager with global hotkey injection."
 authors = ["xiao"]
 edition = "2021"
@@ -38,6 +38,7 @@ keyring = { version = "3", features = ["windows-native", "apple-native"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
+tauri-plugin-dialog = "2.7.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
