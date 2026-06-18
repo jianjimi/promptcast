@@ -677,9 +677,22 @@ export default defineComponent({
                 <RefreshCw :size="13" /> {{ updBusy ? "检查中…" : "检查更新" }}
               </button>
             </div>
-            <div class="sub">
-              已开启自动更新：启动时及每 30 分钟静默检查一次，发现新版本才弹窗提示。
-              可在弹窗里选择「跳过当前版本」或「今天忽略」以减少打扰。
+          </div>
+          <div class="card">
+            <div class="row">
+              <div>
+                <div class="title">自动检查更新</div>
+                <div class="sub">
+                  启动时及每 30 分钟静默检查；发现新版本才弹窗，可选「跳过当前版本/今天忽略」。
+                  关闭后仅在你手动点「检查更新」时才查。
+                </div>
+              </div>
+              <span class="spacer" />
+              <label class="switch">
+                <input type="checkbox" :checked="updateStore.autoCheckEnabled"
+                  @change="(e) => updateStore.setAutoCheckEnabled((e.target as HTMLInputElement).checked)" />
+                <span />
+              </label>
             </div>
           </div>
         </section>

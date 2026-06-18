@@ -20,9 +20,9 @@ export default defineComponent({
       return this.store.visible && !!this.store.info;
     },
     launchedMsg(): string {
-      // macOS 是挂载 dmg 让用户拖进「应用程序」，Windows 是跑安装器 —— 文案如实区分。
+      // macOS：自动替换并重启（无需手动拖拽）；Windows：跑安装器。文案如实区分。
       return isMac()
-        ? "已打开安装镜像，请将 PromptCast 拖入「应用程序」覆盖安装，然后重新打开。"
+        ? "更新包已下载，应用将自动关闭并完成更新，随后重新打开，请稍候…"
         : "安装程序已启动，请按提示完成安装。";
     },
   },

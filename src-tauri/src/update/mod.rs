@@ -414,9 +414,85 @@ pub fn download_and_install(app: &AppHandle, url: &str) -> Result<(), UpdateErro
         .get(&platform_key())
         .ok_or_else(|| UpdateError::NoAsset(platform_key()))?;
     let path = download_asset(app, asset)?;
-    tracing::info!(path = %path.display(), "update downloaded; launching installer");
+    tracing::info!(path = %path.display(), "update downloaded");
+    #[cfg(target_os = "macos")]
+    {
+        // macOS：自动替换 .app 并重启 —— 等本体退出后由分离脚本接管，免去手动拖拽 dmg
+        // 和「应用正在运行无法覆盖」的拦截。仅当本体确实在 .app 包内（正式安装）时才走这条；
+        // 开发构建（裸二进制，不在 .app 里）回退到打开 dmg。
+        if let Some(bundle) = current_app_bundle() {
+            tracing::info!(bundle = %bundle.display(), "scheduling macOS self-update");
+            return macos_self_update(app, &path, &bundle);
+        }
+        tracing::warn!("not inside a .app (dev build?); falling back to opening dmg");
+    }
     launch_installer(&path)
 }
+
+/// 当前运行的可执行文件所在的 `.app` 包路径（macOS）。开发构建（裸二进制）返回 None。
+#[cfg(target_os = "macos")]
+fn current_app_bundle() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.ancestors()
+        .find(|p| p.extension().and_then(|e| e.to_str()) == Some("app"))
+        .map(|p| p.to_path_buf())
+}
+
+/// 安排 macOS 自更新：写一个分离脚本（等本体退出 → 挂载 dmg → ditto 替换 .app → 重启），
+/// 启动它，然后延迟 ~1.5s 退出本体（留时间给前端渲染「即将重启」提示）。
+#[cfg(target_os = "macos")]
+fn macos_self_update(
+    app: &AppHandle,
+    dmg: &std::path::Path,
+    bundle: &std::path::Path,
+) -> Result<(), UpdateError> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join("promptcast-update");
+    std::fs::create_dir_all(&dir).map_err(|e| UpdateError::Io(e.to_string()))?;
+    let script_path = dir.join("pc-selfupdate.sh");
+    std::fs::write(&script_path, MACOS_UPDATE_SCRIPT).map_err(|e| UpdateError::Io(e.to_string()))?;
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| UpdateError::Io(e.to_string()))?;
+
+    // 分离子进程：父进程退出后它被 init 收养、继续运行；用本进程 pid 作为「等谁退出」的目标。
+    std::process::Command::new("/bin/sh")
+        .arg(&script_path)
+        .arg(dmg)
+        .arg(bundle)
+        .arg(std::process::id().to_string())
+        .spawn()
+        .map_err(|e| UpdateError::Launch(e.to_string()))?;
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        handle.exit(0);
+    });
+    Ok(())
+}
+
+/// 等本体退出 → 挂载 dmg → 安全替换 .app（先 ditto 到 .new，成功才换）→ 去隔离属性 → 重启。
+/// 任何一步失败都尽量不破坏旧 .app（只在 ditto 成功后才删旧），最差情况是仍打开旧版本。
+#[cfg(target_os = "macos")]
+const MACOS_UPDATE_SCRIPT: &str = r#"#!/bin/sh
+DMG="$1"; APP="$2"; PID="$3"
+i=0
+while kill -0 "$PID" 2>/dev/null; do sleep 0.3; i=$((i+1)); [ "$i" -gt 100 ] && break; done
+MNT=$(mktemp -d /tmp/pcupd.XXXXXX) || exit 0
+if /usr/bin/hdiutil attach "$DMG" -nobrowse -noautoopen -mountpoint "$MNT" >/dev/null 2>&1; then
+  SRC=$(/bin/ls -d "$MNT"/*.app 2>/dev/null | head -n1)
+  if [ -n "$SRC" ]; then
+    rm -rf "${APP}.new"
+    if /usr/bin/ditto "$SRC" "${APP}.new"; then
+      /usr/bin/xattr -dr com.apple.quarantine "${APP}.new" 2>/dev/null || true
+      rm -rf "$APP" && mv "${APP}.new" "$APP"
+    fi
+  fi
+  /usr/bin/hdiutil detach "$MNT" >/dev/null 2>&1 || true
+fi
+rmdir "$MNT" 2>/dev/null || true
+/usr/bin/open "$APP"
+"#;
 
 #[cfg(test)]
 mod tests {

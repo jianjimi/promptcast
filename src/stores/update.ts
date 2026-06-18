@@ -15,6 +15,7 @@ import type { UpdateInfo, UpdateProgress } from "../types/update";
 // 抑制状态持久化在 localStorage（同源跨窗口共享，存活于应用重启）。
 const LS_SKIP = "pc.update.skipVersion"; // 用户「跳过当前版本」记住的版本号
 const LS_IGNORE = "pc.update.ignoreDate"; // 用户「今天忽略」的日期（YYYY-MM-DD）
+const LS_AUTO = "pc.update.autoCheck"; // 自动检查更新开关（"0"=关，其余=开）
 
 function lsGet(k: string): string {
   try { return localStorage.getItem(k) ?? ""; } catch { return ""; }
@@ -41,6 +42,7 @@ interface State {
   manifestUrl: string;
   skippedVersion: string; // 被「跳过当前版本」抑制的版本
   ignoredDate: string; // 被「今天忽略」抑制的日期
+  autoCheckEnabled: boolean; // 自动检查更新开关（仅用于设置页 UI 绑定）
   unlisten: UnlistenFn | null;
 }
 
@@ -56,6 +58,7 @@ export const useUpdateStore = defineStore("update", {
     manifestUrl: "",
     skippedVersion: lsGet(LS_SKIP),
     ignoredDate: lsGet(LS_IGNORE),
+    autoCheckEnabled: lsGet(LS_AUTO) !== "0", // 默认开
     unlisten: null,
   }),
   getters: {
@@ -86,6 +89,8 @@ export const useUpdateStore = defineStore("update", {
      */
     async check(manual = false): Promise<boolean> {
       if (this.checking) return false;
+      // 自动查受开关控制；直接读 localStorage（而非内存态），使设置窗里改的开关对抽屉窗即时生效。
+      if (!manual && lsGet(LS_AUTO) === "0") return false;
       this.checking = true;
       this.error = null;
       try {
@@ -142,6 +147,11 @@ export const useUpdateStore = defineStore("update", {
           this.unlisten = null;
         }
       }
+    },
+    /** 开/关自动检查更新。关闭后启动与每 30 分钟的静默查都不再执行；手动「检查更新」不受影响。 */
+    setAutoCheckEnabled(on: boolean): void {
+      this.autoCheckEnabled = on;
+      lsSet(LS_AUTO, on ? "1" : "0");
     },
     /** 跳过当前版本：记住该版本号，以后自动查到同一版本不再弹（手动查仍会弹）。 */
     skipVersion(): void {
