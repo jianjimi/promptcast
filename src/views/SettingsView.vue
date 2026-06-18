@@ -78,6 +78,19 @@ export default defineComponent({
       serverDraft: "",
       authBusy: false,
       authErr: "",
+      // 账户管理
+      pwOld: "",
+      pwNew: "",
+      pwMsg: "",
+      delPassword: "",
+      showDelete: false,
+      acctBusy: false,
+      // 找回密码
+      forgotMode: false,
+      forgotEmail: "",
+      resetToken: "",
+      resetNew: "",
+      resetMsg: "",
       unlisteners: [] as UnlistenFn[],
     };
   },
@@ -217,6 +230,56 @@ export default defineComponent({
     async doSyncNow() {
       try { await this.sync.now(); } catch (e) { this.authErr = String(e); }
     },
+    async doChangePassword() {
+      this.pwMsg = "";
+      this.acctBusy = true;
+      try {
+        await this.auth.changePassword(this.pwOld, this.pwNew);
+        this.pwOld = "";
+        this.pwNew = "";
+        this.pwMsg = "密码已修改";
+      } catch (e) { this.pwMsg = String(e); }
+      finally { this.acctBusy = false; }
+    },
+    async doDeleteAccount() {
+      if (!confirm("确认删除账户？不可撤销，本机已同步的数据也会被清除。")) return;
+      this.authErr = "";
+      this.acctBusy = true;
+      try {
+        await this.auth.deleteAccount(this.delPassword);
+        this.delPassword = "";
+        this.showDelete = false;
+        await this.sync.load();
+      } catch (e) { this.authErr = String(e); }
+      finally { this.acctBusy = false; }
+    },
+    async doForgot() {
+      this.resetMsg = "";
+      this.acctBusy = true;
+      try {
+        const email = (this.forgotEmail || this.emailDraft).trim();
+        const t = await this.auth.forgotPassword(email);
+        if (t) {
+          this.resetToken = t;
+          this.resetMsg = "已生成重置令牌（本地开发回显，已自动填好下方令牌）";
+        } else {
+          this.resetMsg = "若该邮箱已注册，重置令牌已发送到邮箱";
+        }
+      } catch (e) { this.resetMsg = String(e); }
+      finally { this.acctBusy = false; }
+    },
+    async doReset() {
+      this.resetMsg = "";
+      this.acctBusy = true;
+      try {
+        await this.auth.resetPassword(this.resetToken.trim(), this.resetNew);
+        this.resetMsg = "密码已重置，请用新密码登录";
+        this.resetToken = "";
+        this.resetNew = "";
+        this.forgotMode = false;
+      } catch (e) { this.resetMsg = String(e); }
+      finally { this.acctBusy = false; }
+    },
   },
 });
 </script>
@@ -346,16 +409,45 @@ export default defineComponent({
             </label>
             <div v-if="authErr" class="err">{{ authErr }}</div>
             <div class="row">
+              <button class="linklike" @click="forgotMode = !forgotMode">
+                {{ forgotMode ? "返回登录" : "忘记密码？" }}
+              </button>
               <span class="spacer" />
               <button class="ghost" :disabled="authBusy" @click="doRegister">注册</button>
               <button class="primary" :disabled="authBusy" @click="doLogin">
                 {{ authBusy ? "请稍候…" : "登录" }}
               </button>
             </div>
+            <template v-if="forgotMode">
+              <div class="divider" />
+              <label class="field">
+                <span class="flabel">注册邮箱</span>
+                <div class="row">
+                  <input v-model="forgotEmail" class="inp" type="email"
+                    :placeholder="emailDraft || 'you@example.com'" />
+                  <button class="ghost" :disabled="acctBusy" @click="doForgot">获取令牌</button>
+                </div>
+              </label>
+              <label class="field">
+                <span class="flabel">重置令牌</span>
+                <input v-model="resetToken" class="inp" placeholder="粘贴邮件/本地回显的令牌" />
+              </label>
+              <label class="field">
+                <span class="flabel">新密码</span>
+                <input v-model="resetNew" class="inp" type="password" placeholder="至少 8 位" />
+              </label>
+              <div v-if="resetMsg" class="hint">{{ resetMsg }}</div>
+              <div class="row">
+                <span class="spacer" />
+                <button class="primary" :disabled="acctBusy || !resetToken || resetNew.length < 8"
+                  @click="doReset">重置密码</button>
+              </div>
+            </template>
           </div>
 
           <!-- 已登录 -->
           <template v-else>
+            <div v-if="authErr" class="err">{{ authErr }}</div>
             <div class="card">
               <div class="row">
                 <div>
@@ -397,6 +489,49 @@ export default defineComponent({
                   <button class="ghost" @click="saveServer">保存</button>
                 </div>
               </label>
+            </div>
+
+            <div class="card">
+              <div class="title">修改密码</div>
+              <label class="field">
+                <span class="flabel">当前密码</span>
+                <input v-model="pwOld" class="inp" type="password" autocomplete="current-password" />
+              </label>
+              <label class="field">
+                <span class="flabel">新密码</span>
+                <input v-model="pwNew" class="inp" type="password" placeholder="至少 8 位"
+                  autocomplete="new-password" />
+              </label>
+              <div v-if="pwMsg" class="hint">{{ pwMsg }}</div>
+              <div class="row">
+                <span class="spacer" />
+                <button class="primary" :disabled="acctBusy || !pwOld || pwNew.length < 8"
+                  @click="doChangePassword">修改密码</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="row">
+                <div>
+                  <div class="title" style="color:var(--danger)">删除账户</div>
+                  <div class="sub">永久删除账户及服务端数据，并清除本机已同步数据，不可撤销。</div>
+                </div>
+                <span class="spacer" />
+                <button class="ghost danger" @click="showDelete = !showDelete">
+                  {{ showDelete ? "取消" : "删除账户" }}
+                </button>
+              </div>
+              <template v-if="showDelete">
+                <label class="field">
+                  <span class="flabel">输入当前密码确认</span>
+                  <input v-model="delPassword" class="inp" type="password" />
+                </label>
+                <div class="row">
+                  <span class="spacer" />
+                  <button class="ghost danger" :disabled="acctBusy || !delPassword"
+                    @click="doDeleteAccount">确认删除</button>
+                </div>
+              </template>
             </div>
           </template>
         </section>
@@ -709,6 +844,14 @@ export default defineComponent({
   word-break: break-all;
 }
 .ghost.danger { color: var(--danger); border-color: transparent; }
+.linklike {
+  background: none;
+  color: var(--accent);
+  font-size: 11px;
+  padding: 0;
+}
+.linklike:hover { text-decoration: underline; }
+.divider { height: 1px; background: var(--border); margin: 4px 0; }
 .hint {
   font-size: 11px;
   padding: 8px 10px;

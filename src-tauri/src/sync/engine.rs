@@ -36,7 +36,10 @@ pub fn sync_once(app: &AppHandle) -> AppResult<Outcome> {
     }
 
     let client = Client::new(&base);
-    let mut access = match rt.access.lock().clone() {
+    // 先释放锁再进 None 分支：refresh_access 会再次锁 rt.access，parking_lot 不可重入，
+    // 否则首次同步（重启后 access 为 None、仅 keyring 有 refresh）会自死锁卡死同步线程。
+    let cached_access = rt.access.lock().clone();
+    let mut access = match cached_access {
         Some(a) => a,
         None => refresh_access(&client, &rt)?,
     };

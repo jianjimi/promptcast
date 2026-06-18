@@ -1,5 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -17,7 +18,11 @@ describe('auth + sync e2e', () => {
   beforeAll(async () => {
     const mod = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      // 关掉限流：e2e 测的是功能，单测里大量连续 auth 调用否则会被 429。
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
     app = mod.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
@@ -144,6 +149,73 @@ describe('auth + sync e2e', () => {
     await http()
       .post('/auth/refresh')
       .send({ refresh: login.body.refresh })
+      .expect(401);
+  });
+
+  it('change password, forgot/reset flow, delete account', async () => {
+    const http = () => request(app.getHttpServer());
+    const email = `acct${Math.floor(Math.random() * 1e9)}@t.io`;
+    const reg = await http()
+      .post('/auth/register')
+      .send({ email, password: 'password123' })
+      .expect(201);
+
+    // 改密 → 旧密码失效、新密码可登。
+    await http()
+      .post('/auth/change-password')
+      .set(auth(reg.body.access))
+      .send({ oldPassword: 'password123', newPassword: 'newpass456' })
+      .expect(204);
+    await http()
+      .post('/auth/login')
+      .send({ email, password: 'password123' })
+      .expect(401);
+    await http()
+      .post('/auth/login')
+      .send({ email, password: 'newpass456' })
+      .expect(200);
+
+    // 找回密码：dev 回显 token → reset → 新密码可登。
+    const forgot = await http()
+      .post('/auth/forgot-password')
+      .send({ email })
+      .expect(200);
+    expect(typeof forgot.body.devToken).toBe('string');
+    await http()
+      .post('/auth/reset-password')
+      .send({ token: forgot.body.devToken, newPassword: 'reset789x' })
+      .expect(204);
+    // 同一 token 不能复用。
+    await http()
+      .post('/auth/reset-password')
+      .send({ token: forgot.body.devToken, newPassword: 'again000x' })
+      .expect(401);
+    const relog = await http()
+      .post('/auth/login')
+      .send({ email, password: 'reset789x' })
+      .expect(200);
+
+    // 不存在的邮箱也返回 200，但不发 token（不泄漏账号存在）。
+    const f2 = await http()
+      .post('/auth/forgot-password')
+      .send({ email: `nobody${Math.floor(Math.random() * 1e9)}@x.io` })
+      .expect(200);
+    expect(f2.body.devToken).toBeUndefined();
+
+    // 删除账户：密码错拒、对了删；删后登录失败。
+    await http()
+      .post('/auth/delete-account')
+      .set(auth(relog.body.access))
+      .send({ password: 'wrong' })
+      .expect(401);
+    await http()
+      .post('/auth/delete-account')
+      .set(auth(relog.body.access))
+      .send({ password: 'reset789x' })
+      .expect(204);
+    await http()
+      .post('/auth/login')
+      .send({ email, password: 'reset789x' })
       .expect(401);
   });
 });

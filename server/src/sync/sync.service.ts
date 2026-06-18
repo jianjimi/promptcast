@@ -74,17 +74,18 @@ export class SyncService {
           ? null
           : BigInt(c.deleted_at);
       const rows = await this.prisma.$queryRaw<{ seq: bigint }[]>`
-        INSERT INTO sync_records (user_id, entity, uuid, updated_at, deleted_at, data, seq)
+        INSERT INTO sync_records (user_id, entity, uuid, updated_at, deleted_at, data, seq, server_seen_at)
         VALUES (
           ${userId}::uuid, ${c.entity}, ${c.uuid}::uuid,
           ${BigInt(updatedAt)}, ${deletedAt},
-          ${JSON.stringify(c.data)}::jsonb, nextval('sync_records_seq')
+          ${JSON.stringify(c.data)}::jsonb, nextval('sync_records_seq'), now()
         )
         ON CONFLICT (user_id, entity, uuid) DO UPDATE
-          SET updated_at = EXCLUDED.updated_at,
-              deleted_at = EXCLUDED.deleted_at,
-              data       = EXCLUDED.data,
-              seq        = nextval('sync_records_seq')
+          SET updated_at     = EXCLUDED.updated_at,
+              deleted_at     = EXCLUDED.deleted_at,
+              data           = EXCLUDED.data,
+              seq            = nextval('sync_records_seq'),
+              server_seen_at = now()
           WHERE EXCLUDED.updated_at >= sync_records.updated_at
         RETURNING seq
       `;

@@ -22,6 +22,14 @@ use crate::error::{AppError, AppResult};
 use crate::platform::{self, permissions};
 use crate::LastFrontmost;
 
+// 粘贴键发出后等多久再还原原剪贴板：要给目标应用足够时间读走我们写入的内容再还原，
+// 否则慢应用会粘到旧内容。Windows 上（Electron/浏览器/远程桌面较慢）给更长余量；
+// 两端都有 still_ours 守卫，延长只是「原剪贴板晚一点还原」，无副作用。
+#[cfg(target_os = "windows")]
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 900;
+#[cfg(not(target_os = "windows"))]
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 600;
+
 // 记录「我们自己刚写进剪贴板的内容」，让剪贴板历史监听线程跳过自注入/复制/还原，
 // 避免把注入的提示词也记成一次外部「复制」。
 static LAST_SELF_COPY: OnceLock<Mutex<Option<String>>> = OnceLock::new();
@@ -227,7 +235,7 @@ pub fn inject_paste(app: AppHandle, content: String) -> AppResult<InjectResult> 
     let result = do_paste(modifier);
 
     // 8) 不论成功失败都尝试还原剪贴板（粘贴失败时还原更应该）
-    schedule_clipboard_restore(prev_clipboard, content, 600);
+    schedule_clipboard_restore(prev_clipboard, content, CLIPBOARD_RESTORE_DELAY_MS);
 
     match result {
         Ok(()) => {

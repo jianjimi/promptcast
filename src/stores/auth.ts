@@ -1,6 +1,9 @@
 // stores/auth.ts — 账户登录态。
 import { defineStore } from "pinia";
-import { authStatus, authLogin, authRegister, authLogout } from "../api/auth";
+import {
+  authStatus, authLogin, authRegister, authLogout,
+  authChangePassword, authDeleteAccount, authForgotPassword, authResetPassword,
+} from "../api/auth";
 
 interface State {
   loggedIn: boolean;
@@ -31,6 +34,20 @@ export const useAuthStore = defineStore("auth", {
       await authLogout();
       this.loggedIn = false;
       this.email = null;
+    },
+    async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+      await authChangePassword(oldPassword, newPassword);
+    },
+    async deleteAccount(password: string): Promise<void> {
+      await authDeleteAccount(password);
+      this.loggedIn = false;
+      this.email = null;
+    },
+    forgotPassword(email: string): Promise<string | null> {
+      return authForgotPassword(email);
+    },
+    resetPassword(token: string, newPassword: string): Promise<void> {
+      return authResetPassword(token, newPassword);
     },
   },
 });

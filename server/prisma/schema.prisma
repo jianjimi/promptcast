@@ -18,8 +18,9 @@ model User {
   email        String         @unique
   passwordHash String         @map("password_hash")
   createdAt    DateTime       @default(now()) @map("created_at")
-  refreshTokens RefreshToken[]
-  syncRecords   SyncRecord[]
+  refreshTokens  RefreshToken[]
+  passwordResets PasswordReset[]
+  syncRecords    SyncRecord[]
 
   @@map("users")
 }
@@ -37,15 +38,29 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+model PasswordReset {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_resets")
+}
+
 model SyncRecord {
-  userId    String  @map("user_id") @db.Uuid
-  entity    String
-  uuid      String  @db.Uuid
-  updatedAt BigInt  @map("updated_at") // 客户端墙钟毫秒，仅用于 LWW 平局判定
-  deletedAt BigInt? @map("deleted_at") // 软删墓碑
-  data      Json
-  seq       BigInt  @default(0) // 单调游标，由 push 原生 SQL 取 nextval 覆盖
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String   @map("user_id") @db.Uuid
+  entity      String
+  uuid        String   @db.Uuid
+  updatedAt   BigInt   @map("updated_at") // 客户端墙钟毫秒，仅用于 LWW 平局判定
+  deletedAt   BigInt?  @map("deleted_at") // 软删墓碑（客户端时间，不可信，不用于 GC 保留）
+  data        Json
+  seq         BigInt   @default(0) // 单调游标，由 push 原生 SQL 取 nextval 覆盖
+  serverSeenAt DateTime @default(now()) @map("server_seen_at") // 服务端时间，每次 push 命中刷新；GC 据此
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, entity, uuid])
   @@index([userId, seq])

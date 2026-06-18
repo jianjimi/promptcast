@@ -280,18 +280,19 @@ pub fn collect_dirty(conn: &Connection) -> AppResult<Vec<Change>> {
 }
 
 /// 找出本变更对应的本地行（优先 uuid，name-unique 实体退而按 name 收编）。
-/// 返回 (id, updated_at, dirty)。
+/// 返回 (id, updated_at, dirty, 该行现有 uuid)。
+type Target = (i64, i64, i64, Option<String>);
 fn find_target(
     conn: &Connection,
     table: &str,
     uuid: &str,
     name_for_collision: Option<&str>,
-) -> AppResult<Option<(i64, i64, i64)>> {
+) -> AppResult<Option<Target>> {
     if let Some(row) = conn
         .query_row(
-            &format!("SELECT id, updated_at, dirty FROM {table} WHERE uuid = ?1"),
+            &format!("SELECT id, updated_at, dirty, uuid FROM {table} WHERE uuid = ?1"),
             params![uuid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()
         .map_err(dberr)?
@@ -301,14 +302,37 @@ fn find_target(
     if let Some(name) = name_for_collision {
         return conn
             .query_row(
-                &format!("SELECT id, updated_at, dirty FROM {table} WHERE name = ?1"),
+                &format!("SELECT id, updated_at, dirty, uuid FROM {table} WHERE name = ?1"),
                 params![name],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()
             .map_err(dberr);
     }
     Ok(None)
+}
+
+/// 收编发生（incoming uuid != 本地行旧 uuid）后，给空出来的旧 uuid 补一条墓碑，
+/// 下拍 push 让服务端回收这条孤儿活记录（否则它永不更新、永久留在服务端）。
+/// 必须在本地行 uuid 已被改成 incoming（旧 uuid 已释放）之后调用，避免 uuid 唯一冲突。
+fn reap_orphan_uuid(conn: &Connection, table: &str, old_uuid: &str) -> AppResult<()> {
+    let now = now_ms();
+    // 墓碑 name 用占位串（被软删、partial unique 不约束；占位防与活行/其它墓碑撞）。
+    let placeholder = format!("\u{1}orphan-{old_uuid}");
+    let sql = match table {
+        "folders" => {
+            "INSERT INTO folders (uuid, name, sort_order, created_at, updated_at, deleted_at, dirty) \
+             VALUES (?1, ?2, 0, ?3, ?3, ?3, 1)"
+        }
+        "tags" => {
+            "INSERT INTO tags (uuid, name, color, created_at, updated_at, deleted_at, dirty) \
+             VALUES (?1, ?2, NULL, ?3, ?3, ?3, 1)"
+        }
+        _ => return Ok(()),
+    };
+    conn.execute(sql, params![old_uuid, placeholder, now])
+        .map_err(dberr)?;
+    Ok(())
 }
 
 /// LWW：决定服务端来的变更是否覆盖本地。target = 本地行 (updated_at, dirty)。
@@ -346,11 +370,11 @@ fn apply_folder(conn: &Connection, ch: &Change) -> AppResult<bool> {
         None
     };
     let target = find_target(conn, "folders", &ch.uuid, collide_name)?;
-    if !decide_write(target.map(|(_, u, dty)| (u, dty)), ch.updated_at) {
+    if !decide_write(target.as_ref().map(|t| (t.1, t.2)), ch.updated_at) {
         return Ok(false);
     }
     match target {
-        Some((id, _, _)) => {
+        Some((id, _, _, old_uuid)) => {
             conn.execute(
                 "UPDATE folders SET uuid=?1, name=?2, sort_order=?3, created_at=?4, \
                  updated_at=?5, deleted_at=?6, dirty=0 WHERE id=?7",
@@ -365,6 +389,11 @@ fn apply_folder(conn: &Connection, ch: &Change) -> AppResult<bool> {
                 ],
             )
             .map_err(dberr)?;
+            if let Some(old) = old_uuid {
+                if old != ch.uuid {
+                    reap_orphan_uuid(conn, "folders", &old)?;
+                }
+            }
         }
         None => {
             conn.execute(
@@ -388,11 +417,11 @@ fn apply_tag(conn: &Connection, ch: &Change) -> AppResult<bool> {
         None
     };
     let target = find_target(conn, "tags", &ch.uuid, collide_name)?;
-    if !decide_write(target.map(|(_, u, dty)| (u, dty)), ch.updated_at) {
+    if !decide_write(target.as_ref().map(|t| (t.1, t.2)), ch.updated_at) {
         return Ok(false);
     }
     match target {
-        Some((id, _, _)) => {
+        Some((id, _, _, old_uuid)) => {
             conn.execute(
                 "UPDATE tags SET uuid=?1, name=?2, color=?3, created_at=?4, \
                  updated_at=?5, deleted_at=?6, dirty=0 WHERE id=?7",
@@ -407,6 +436,11 @@ fn apply_tag(conn: &Connection, ch: &Change) -> AppResult<bool> {
                 ],
             )
             .map_err(dberr)?;
+            if let Some(old) = old_uuid {
+                if old != ch.uuid {
+                    reap_orphan_uuid(conn, "tags", &old)?;
+                }
+            }
         }
         None => {
             conn.execute(
@@ -431,11 +465,11 @@ fn apply_site(conn: &Connection, ch: &Change) -> AppResult<bool> {
     let d: SiteData = serde_json::from_value(ch.data.clone())
         .map_err(|e| AppError::Internal(format!("site data: {e}")))?;
     let target = find_target(conn, "sites", &ch.uuid, None)?;
-    if !decide_write(target.map(|(_, u, dty)| (u, dty)), ch.updated_at) {
+    if !decide_write(target.as_ref().map(|t| (t.1, t.2)), ch.updated_at) {
         return Ok(false);
     }
     match target {
-        Some((id, _, _)) => {
+        Some((id, _, _, _)) => {
             conn.execute(
                 "UPDATE sites SET name=?1, url=?2, sort_order=?3, created_at=?4, \
                  updated_at=?5, deleted_at=?6, dirty=0 WHERE id=?7",
@@ -467,7 +501,7 @@ fn apply_prompt(conn: &mut Connection, ch: &Change) -> AppResult<bool> {
     let d: PromptData = serde_json::from_value(ch.data.clone())
         .map_err(|e| AppError::Internal(format!("prompt data: {e}")))?;
     let target = find_target(conn, "prompts", &ch.uuid, None)?;
-    if !decide_write(target.map(|(_, u, dty)| (u, dty)), ch.updated_at) {
+    if !decide_write(target.as_ref().map(|t| (t.1, t.2)), ch.updated_at) {
         return Ok(false);
     }
     // 解析 folder_uuid -> 本地 folder_id（缺失则置 NULL，folder 可能本轮稍后/下轮到）。
@@ -483,7 +517,7 @@ fn apply_prompt(conn: &mut Connection, ch: &Change) -> AppResult<bool> {
 
     let tx = conn.transaction().map_err(dberr)?;
     let pid: i64 = match target {
-        Some((id, _, _)) => {
+        Some((id, _, _, _)) => {
             tx.execute(
                 "UPDATE prompts SET title=?1, content=?2, folder_id=?3, is_favorite=?4, \
                  is_pinned=?5, created_at=?6, updated_at=?7, deleted_at=?8, dirty=0 WHERE id=?9",
@@ -638,6 +672,48 @@ mod tests {
             )
             .unwrap();
         assert_eq!(still, ua, "uuid not adopted by the tombstone");
+    }
+
+    #[test]
+    fn name_adopt_reaps_old_uuid_as_tombstone() {
+        let mut c = memory_conn();
+        folders::create(&c, "Work").unwrap();
+        // 本地 'Work' 已推送（uuidA, dirty=0）。
+        c.execute(
+            "UPDATE folders SET uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', dirty=0, updated_at=10 \
+             WHERE name='Work'",
+            [],
+        )
+        .unwrap();
+        // 服务端来「同名 'Work' 但不同 uuidB」的存活变更（更新更晚）→ 按名收编。
+        let ch = Change {
+            entity: ENTITY_FOLDER.into(),
+            uuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".into(),
+            updated_at: 100,
+            deleted_at: None,
+            data: json!({"name":"Work","sort_order":0,"created_at":1}),
+            seq: 1,
+        };
+        apply_change(&mut c, &ch).unwrap();
+        // 活的 'Work' 现在 uuid = B。
+        let live_uuid: String = c
+            .query_row(
+                "SELECT uuid FROM folders WHERE name='Work' AND deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_uuid, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        // 旧 uuidA 留了一条墓碑、dirty=1（待 push 让服务端回收孤儿）。
+        let (del, dirty): (Option<i64>, i64) = c
+            .query_row(
+                "SELECT deleted_at, dirty FROM folders WHERE uuid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!(del.is_some(), "old uuid tombstoned");
+        assert_eq!(dirty, 1, "old uuid queued for reaping push");
     }
 
     #[test]
