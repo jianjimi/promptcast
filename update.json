@@ -1,23 +1,21 @@
 {
-  "_comment": "PromptCast 线上更新清单。客户端预制读取本文件的 raw 直链：https://raw.githubusercontent.com/jianjimi/promptcast/main/update.json 。发版流程见 RELEASE.md：bump 版本 → 打 tag → Actions 出包并发布 Release → 把这里的 version 与下载直链改成新版。",
-
-  "version": "0.0.2",
-  "title": "应用内自动更新上线",
-  "notes": "· 预制更新源，启动时及每 30 分钟自动静默检查\n· 发现新版本弹窗，可「立即更新 / 今天忽略 / 跳过当前版本」\n· 多平台自动打包（macOS 通用包 + Windows）",
+  "_comment": "PromptCast 线上更新清单（由 CI 自动生成；勿手改）。客户端预制读取本文件 raw 直链。",
+  "version": "0.0.3",
+  "title": "可关闭自动更新 + macOS 自动重启更新",
+  "notes": "· 设置「关于」新增开关，可关闭自动检查更新\n· macOS 更新改为自动替换并重启，无需手动拖拽 dmg\n· 弹窗支持：立即更新 / 今天忽略 / 跳过当前版本",
   "pub_date": "2026-06-18",
-
   "downloads": {
     "windows-x86_64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.2/PromptCast_0.0.2_x64-setup.exe",
-      "sha256": ""
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.3/PromptCast_0.0.3_x64-setup.exe",
+      "sha256": "daa8b5e8acc413cb0e64909b6f15509d87f93df79dd502ec8464389bfbddaa6d"
     },
     "darwin-aarch64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.2/PromptCast_0.0.2_universal.dmg",
-      "sha256": ""
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.3/PromptCast_0.0.3_universal.dmg",
+      "sha256": "b81f71ec2f6785780617948ab0aad84615da7042e324f7b432896faacbb0331b"
     },
     "darwin-x86_64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.2/PromptCast_0.0.2_universal.dmg",
-      "sha256": ""
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.3/PromptCast_0.0.3_universal.dmg",
+      "sha256": "b81f71ec2f6785780617948ab0aad84615da7042e324f7b432896faacbb0331b"
     }
   }
 }
