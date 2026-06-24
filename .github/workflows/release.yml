@@ -73,10 +73,45 @@ jobs:
       - name: Install frontend deps
         run: pnpm install --frozen-lockfile
 
+      # macOS 代码签名（自签名证书）：导入 .p12 到临时钥匙串并标记为受信任的代码签名根，
+      # 使 codesign 能用该身份。目的是让签名身份跨版本稳定，从而更新后辅助功能(TCC)授权不丢失。
+      # 自签名非 Apple 公证，Gatekeeper 首次打开仍需右键「打开」（不影响授权保留）。
+      - name: Setup macOS signing keychain
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "未配置签名证书，跳过（产物将为 ad-hoc 未签名）"; exit 0
+          fi
+          P12="$RUNNER_TEMP/pc.p12"
+          PEM="$RUNNER_TEMP/pc.pem"
+          KC="$RUNNER_TEMP/pc-signing.keychain-db"
+          KCPASS="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$P12"
+          openssl pkcs12 -in "$P12" -clcerts -nokeys -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -out "$PEM"
+          security create-keychain -p "$KCPASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPASS" "$KC"
+          security import "$P12" -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KC" >/dev/null
+          # 把新钥匙串加入用户搜索列表（保留原有），并设为默认，供 codesign 查找身份
+          EXISTING="$(security list-keychains -d user | sed 's/[\" ]//g' | tr '\n' ' ')"
+          security list-keychains -d user -s "$KC" $EXISTING
+          security default-keychain -s "$KC"
+          # 自签名必须显式信任为代码签名根，否则 codesign 报「no identity found」
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$PEM"
+          echo "--- 可用代码签名身份 ---"
+          security find-identity -v -p codesigning "$KC"
+
       - name: Build app & upload to release (draft)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 用此身份签名（Windows 忽略）。空则不签名。
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "PromptCast ${{ github.ref_name }}"

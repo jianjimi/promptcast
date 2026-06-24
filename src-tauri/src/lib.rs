@@ -245,31 +245,16 @@ pub fn run() {
                 }
             }
 
-            // ---- 启动即检查辅助功能授权 ----
-            // ad-hoc 未签名 App 被更新替换后 cdhash 变化，macOS 会重置辅助功能授权，is_trusted() 变 false。
-            // 为避免「明明授权过、每次更新/重启又被反复要权限」：曾经授权过(ax_ever_granted)就不再启动自动弹；
-            // 注入未授权本就有剪贴板兜底，用户可随时在设置页「权限诊断」重新授权。
+            // ---- 启动辅助功能状态（仅记录，不在启动自动弹框）----
+            // 不主动弹：真正需要权限时（用户按下粘贴/注入），inject 路径会按需弹一次系统引导并复制兜底，
+            // 比每次启动都弹更克制。注：ad-hoc 未签名 App 更新替换后 macOS 会重置 TCC 授权，需重授一次；
+            // 跨更新保留授权的根治办法是用稳定证书签名（见 RELEASE.md）。
             #[cfg(target_os = "macos")]
             {
-                const AX_KEY: &str = "ax_ever_granted";
-                let trusted = crate::platform::permissions::is_trusted();
-                let ever_granted = {
-                    let db = app.state::<DbState>();
-                    let conn = db.0.lock();
-                    if trusted {
-                        let _ = crate::db::settings::set_raw(&conn, AX_KEY, "1");
-                        true
-                    } else {
-                        crate::db::settings::get_raw(&conn, AX_KEY).ok().flatten().as_deref()
-                            == Some("1")
-                    }
-                };
-                if !trusted && !ever_granted {
-                    crate::platform::permissions::prompt_trust();
-                    tracing::info!("accessibility not granted (first time); system prompt requested");
-                } else if !trusted {
-                    tracing::info!("accessibility not trusted but previously granted (likely post-update TCC reset); skip auto-prompt");
-                }
+                tracing::info!(
+                    trusted = crate::platform::permissions::is_trusted(),
+                    "accessibility status at startup"
+                );
 
                 // 更新重启后：检测到标记则唤起抽屉，让用户知道已更新并重启成功。
                 let flag = crate::update::relaunch_flag_path();
