@@ -351,11 +351,9 @@ fn hex_lower(bytes: &[u8]) -> String {
     s
 }
 
-/// 拉起安装器。Windows：经 cmd `start` 脱壳启动 setup.exe / msi（NSIS 安装器会自己关掉
-/// 正在运行的本程序再装、装完可重启）。macOS：`open` 挂载 dmg 弹出拖拽安装窗。
+/// 拉起安装器（仅作回退；正常更新走 windows_self_update）。
 #[cfg(target_os = "windows")]
 fn launch_installer(path: &std::path::Path) -> Result<(), UpdateError> {
-    // `start "" "<path>"`：首个引号串是窗口标题占位，第二个才是路径；这样含空格路径也安全。
     std::process::Command::new("cmd")
         .arg("/C")
         .arg("start")
@@ -365,6 +363,62 @@ fn launch_installer(path: &std::path::Path) -> Result<(), UpdateError> {
         .map(|_| ())
         .map_err(|e| UpdateError::Launch(e.to_string()))
 }
+
+/// Windows 自更新：写一个分离批处理（等本体退出 → 静默运行 NSIS 安装器 → 重启新版），
+/// 启动它，然后延迟退出本体。流程与 macOS 的 `macos_self_update` 对称。
+#[cfg(target_os = "windows")]
+fn windows_self_update(app: &AppHandle, installer: &std::path::Path) -> Result<(), UpdateError> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let dir = std::env::temp_dir().join("promptcast-update");
+    std::fs::create_dir_all(&dir).map_err(|e| UpdateError::Io(e.to_string()))?;
+    let script_path = dir.join("pc-selfupdate.bat");
+    std::fs::write(&script_path, WINDOWS_UPDATE_SCRIPT)
+        .map_err(|e| UpdateError::Io(e.to_string()))?;
+
+    let _ = std::fs::write(relaunch_flag_path(), "1");
+
+    let exe = std::env::current_exe().map_err(|e| UpdateError::Launch(e.to_string()))?;
+
+    std::process::Command::new("cmd")
+        .arg("/C")
+        .arg(&script_path)
+        .arg(installer)
+        .arg(std::process::id().to_string())
+        .arg(&exe)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| UpdateError::Launch(e.to_string()))?;
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        handle.exit(0);
+    });
+    Ok(())
+}
+
+/// 等本体退出 → 静默 NSIS 安装 → 重启新版。用 `ping` 做延时（无窗口进程不支持 `timeout`）。
+#[cfg(target_os = "windows")]
+const WINDOWS_UPDATE_SCRIPT: &str = r#"@echo off
+set "INSTALLER=%~1"
+set "PID=%~2"
+set "EXE=%~3"
+set /a N=0
+:wait
+if %N% GEQ 100 goto install
+tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
+if not errorlevel 1 (
+    set /a N+=1
+    ping -n 2 127.0.0.1 >NUL
+    goto wait
+)
+:install
+start /wait "" "%INSTALLER%" /S
+if exist "%EXE%" start "" "%EXE%"
+del "%INSTALLER%" 2>NUL
+"#;
 
 #[cfg(target_os = "macos")]
 fn launch_installer(path: &std::path::Path) -> Result<(), UpdateError> {
@@ -417,20 +471,21 @@ pub fn download_and_install(app: &AppHandle, url: &str) -> Result<(), UpdateErro
     tracing::info!(path = %path.display(), "update downloaded");
     #[cfg(target_os = "macos")]
     {
-        // macOS：自动替换 .app 并重启 —— 等本体退出后由分离脚本接管，免去手动拖拽 dmg
-        // 和「应用正在运行无法覆盖」的拦截。仅当本体确实在 .app 包内（正式安装）时才走这条；
-        // 开发构建（裸二进制，不在 .app 里）回退到打开 dmg。
         if let Some(bundle) = current_app_bundle() {
             tracing::info!(bundle = %bundle.display(), "scheduling macOS self-update");
             return macos_self_update(app, &path, &bundle);
         }
         tracing::warn!("not inside a .app (dev build?); falling back to opening dmg");
     }
+    #[cfg(target_os = "windows")]
+    {
+        tracing::info!("scheduling Windows silent self-update");
+        return windows_self_update(app, &path);
+    }
     launch_installer(&path)
 }
 
 /// 更新重启标记路径：自更新前写入，新实例启动时检测到则唤起主窗口（让用户知道已重启成功）并删除它。
-#[cfg(target_os = "macos")]
 pub fn relaunch_flag_path() -> PathBuf {
     std::env::temp_dir()
         .join("promptcast-update")

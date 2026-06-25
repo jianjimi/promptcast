@@ -255,8 +255,10 @@ pub fn run() {
                     trusted = crate::platform::permissions::is_trusted(),
                     "accessibility status at startup"
                 );
+            }
 
-                // 更新重启后：检测到标记则唤起抽屉，让用户知道已更新并重启成功。
+            // 更新重启后：检测到标记则唤起抽屉，让用户知道已更新并重启成功。
+            {
                 let flag = crate::update::relaunch_flag_path();
                 if flag.exists() {
                     let _ = std::fs::remove_file(&flag);
