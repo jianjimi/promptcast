@@ -1,21 +1,21 @@
 {
   "_comment": "PromptCast 线上更新清单（由 CI 自动生成；勿手改）。客户端预制读取本文件 raw 直链。",
-  "version": "0.0.7",
-  "title": "macOS 代码签名",
-  "notes": "· 自签名代码签名，更新后不再反复要辅助功能权限\n· 注：首个签名版仍需在系统设置重授一次，之后保留",
-  "pub_date": "2026-06-24",
+  "version": "0.0.8",
+  "title": "Windows 静默自更新 + NSIS 中文安装器",
+  "notes": "· Windows 更新不再弹安装向导，静默安装后自动重启\n· NSIS 安装器中文化\n· 更新重启检测跨平台",
+  "pub_date": "2026-06-25",
   "downloads": {
     "windows-x86_64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.7/PromptCast_0.0.7_x64-setup.exe",
-      "sha256": "44979cd29c801b315c21f878d0fd89c7942d972bb35123d20d13fd99376668d8"
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.8/PromptCast_0.0.8_x64-setup.exe",
+      "sha256": "a72ea29c147ae7b16ffcf2cc0ed9eb1fc39783010f07462425c7a888270d5db3"
     },
     "darwin-aarch64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.7/PromptCast_0.0.7_universal.dmg",
-      "sha256": "98cdf2cfb552e84494fd3c514225965ba1f3aa54124bd73cbd0c6524ec5b65f4"
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.8/PromptCast_0.0.8_universal.dmg",
+      "sha256": "331dee5d007d9e8ba398fa37076dc86fb1fd167217b5d95b073473892fdc02b7"
     },
     "darwin-x86_64": {
-      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.7/PromptCast_0.0.7_universal.dmg",
-      "sha256": "98cdf2cfb552e84494fd3c514225965ba1f3aa54124bd73cbd0c6524ec5b65f4"
+      "url": "https://github.com/jianjimi/promptcast/releases/download/v0.0.8/PromptCast_0.0.8_universal.dmg",
+      "sha256": "331dee5d007d9e8ba398fa37076dc86fb1fd167217b5d95b073473892fdc02b7"
     }
   }
 }
