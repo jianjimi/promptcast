@@ -1,4 +1,15 @@
-# PromptCast
+
+
+# 新仓库已迁移至 https://github.com/liuxiaogang-com/promptcast/
+
+
+
+
+
+
+
+
+## PromptCast
 
 > 仓库地址：<https://cnb.cool/liuxiaogang/promptcast>
 
